@@ -1,211 +1,209 @@
-const fs = require('fs').promises;
-const path = require('path');
-
 /**
- * Sistema Multi-Idioma (i18n)
- * Soporta múltiples idiomas para el bot de tickets
+ * Sistema de Internacionalización (i18n)
+ * Maneja traducciones en múltiples idiomas
  */
 
 class LanguageSystem {
     constructor() {
-        this.languages = new Map();
+        this.translations = {};
+        this.userLanguages = new Map();
+        this.guildLanguages = new Map();
         this.defaultLanguage = 'es';
         this.supportedLanguages = ['es', 'en', 'pt'];
-        this.userLanguages = new Map(); // userId -> languageCode
-        this.guildLanguages = new Map(); // guildId -> languageCode
     }
 
-    /**
-     * Inicializa el sistema de idiomas cargando traducciones
-     */
     async initialize() {
-        const translationsDir = path.join(__dirname, '../translations');
-        
-        try {
-            await fs.mkdir(translationsDir, { recursive: true });
-        } catch (error) {
-            console.error('Error creating translations directory:', error);
-        }
+        console.log('🌍 Inicializando sistema de idiomas...');
+        await this.loadTranslations();
+        console.log('✅ Sistema de idiomas cargado');
+    }
 
-        // Cargar traducciones
-        for (const lang of this.supportedLanguages) {
-            try {
-                const translations = await this.loadTranslations(lang);
-                this.languages.set(lang, translations);
-                console.log(`✅ Idioma cargado: ${lang}`);
-            } catch (error) {
-                console.error(`Error cargando idioma ${lang}:`, error);
-                // Si falla, usar traducciones por defecto
-                this.languages.set(lang, this.getDefaultTranslations(lang));
+    async loadTranslations() {
+        // Traducciones embebidas directamente en el código
+        this.translations = {
+            es: {
+                language: {
+                    nativeName: 'Español',
+                    name: 'Spanish',
+                    flag: '🇪🇸'
+                },
+                commands: {
+                    idioma: {
+                        select: 'Selecciona tu idioma',
+                        current: 'Tu idioma actual es: {language}',
+                        changed: 'Idioma cambiado a: {language}',
+                        available: 'Idiomas disponibles'
+                    }
+                },
+                errors: {
+                    noPermission: '❌ No tienes permisos para hacer esto.'
+                },
+                success: {
+                    settingSaved: '✅ Configuración guardada'
+                },
+                misc: {
+                    loading: 'Cargando...',
+                    user: 'Usuario',
+                    server: 'Servidor'
+                }
+            },
+            en: {
+                language: {
+                    nativeName: 'English',
+                    name: 'English',
+                    flag: '🇺🇸'
+                },
+                commands: {
+                    idioma: {
+                        select: 'Select your language',
+                        current: 'Your current language is: {language}',
+                        changed: 'Language changed to: {language}',
+                        available: 'Available languages'
+                    }
+                },
+                errors: {
+                    noPermission: '❌ You don\'t have permission to do this.'
+                },
+                success: {
+                    settingSaved: '✅ Setting saved'
+                },
+                misc: {
+                    loading: 'Loading...',
+                    user: 'User',
+                    server: 'Server'
+                }
+            },
+            pt: {
+                language: {
+                    nativeName: 'Português',
+                    name: 'Portuguese',
+                    flag: '🇧🇷'
+                },
+                commands: {
+                    idioma: {
+                        select: 'Selecione seu idioma',
+                        current: 'Seu idioma atual é: {language}',
+                        changed: 'Idioma alterado para: {language}',
+                        available: 'Idiomas disponíveis'
+                    }
+                },
+                errors: {
+                    noPermission: '❌ Você não tem permissão para fazer isso.'
+                },
+                success: {
+                    settingSaved: '✅ Configuração salva'
+                },
+                misc: {
+                    loading: 'Carregando...',
+                    user: 'Usuário',
+                    server: 'Servidor'
+                }
             }
-        }
-    }
-
-    /**
-     * Carga traducciones desde archivo JSON
-     */
-    async loadTranslations(langCode) {
-        const filePath = path.join(__dirname, '../translations', `${langCode}.json`);
-        
-        try {
-            const data = await fs.readFile(filePath, 'utf8');
-            return JSON.parse(data);
-        } catch (error) {
-            // Si el archivo no existe, crear uno con traducciones por defecto
-            const defaultTranslations = this.getDefaultTranslations(langCode);
-            await fs.writeFile(filePath, JSON.stringify(defaultTranslations, null, 2), 'utf8');
-            return defaultTranslations;
-        }
-    }
-
-    /**
-     * Obtiene traducciones por defecto según el idioma
-     */
-    getDefaultTranslations(langCode) {
-        const translations = {
-            es: require('./translations/es'),
-            en: require('./translations/en'),
-            pt: require('./translations/pt')
         };
-
-        return translations[langCode] || translations.es;
     }
 
     /**
      * Obtiene una traducción
      */
-    get(key, langCode = null, replacements = {}) {
-        const lang = langCode || this.defaultLanguage;
-        const translations = this.languages.get(lang) || this.languages.get(this.defaultLanguage);
-
-        // Navegar por el objeto de traducciones usando la key
-        let value = translations;
+    get(key, lang = 'es', params = {}) {
+        lang = lang || this.defaultLanguage;
+        
         const keys = key.split('.');
+        let value = this.translations[lang];
         
         for (const k of keys) {
-            if (value && typeof value === 'object' && k in value) {
+            if (value && typeof value === 'object') {
                 value = value[k];
             } else {
-                // Si no se encuentra la traducción, usar el idioma por defecto
-                return this.get(key, this.defaultLanguage, replacements);
+                // Si no encuentra la clave, usar idioma por defecto
+                value = this.translations[this.defaultLanguage];
+                for (const k2 of keys) {
+                    if (value && typeof value === 'object') {
+                        value = value[k2];
+                    }
+                }
+                break;
             }
         }
 
-        // Reemplazar variables
         if (typeof value === 'string') {
-            return this.replaceVariables(value, replacements);
+            // Reemplazar parámetros {param}
+            return value.replace(/\{(\w+)\}/g, (match, param) => {
+                return params[param] || match;
+            });
         }
 
-        return value;
+        return key; // Si no encuentra nada, retorna la clave
     }
 
     /**
-     * Reemplaza variables en una cadena
+     * Detecta el idioma del usuario
      */
-    replaceVariables(text, replacements) {
-        let result = text;
-        
-        for (const [key, value] of Object.entries(replacements)) {
-            result = result.replace(new RegExp(`{${key}}`, 'g'), value);
+    detectUserLanguage(interaction) {
+        // 1. Idioma del usuario guardado
+        if (this.userLanguages.has(interaction.user.id)) {
+            return this.userLanguages.get(interaction.user.id);
         }
 
-        return result;
+        // 2. Idioma del servidor
+        if (interaction.guild && this.guildLanguages.has(interaction.guild.id)) {
+            return this.guildLanguages.get(interaction.guild.id);
+        }
+
+        // 3. Idioma por defecto
+        return this.defaultLanguage;
     }
 
     /**
-     * Establece el idioma de un usuario
+     * Establece el idioma del usuario
      */
-    setUserLanguage(userId, langCode) {
-        if (this.supportedLanguages.includes(langCode)) {
-            this.userLanguages.set(userId, langCode);
+    setUserLanguage(userId, lang) {
+        if (this.supportedLanguages.includes(lang)) {
+            this.userLanguages.set(userId, lang);
             return true;
         }
         return false;
     }
 
     /**
-     * Obtiene el idioma de un usuario
+     * Establece el idioma del servidor
+     */
+    setGuildLanguage(guildId, lang) {
+        if (this.supportedLanguages.includes(lang)) {
+            this.guildLanguages.set(guildId, lang);
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Obtiene el idioma del usuario
      */
     getUserLanguage(userId) {
         return this.userLanguages.get(userId) || this.defaultLanguage;
     }
 
     /**
-     * Establece el idioma de un servidor
-     */
-    setGuildLanguage(guildId, langCode) {
-        if (this.supportedLanguages.includes(langCode)) {
-            this.guildLanguages.set(guildId, langCode);
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * Obtiene el idioma de un servidor
+     * Obtiene el idioma del servidor
      */
     getGuildLanguage(guildId) {
         return this.guildLanguages.get(guildId) || this.defaultLanguage;
     }
 
     /**
-     * Detecta automáticamente el idioma preferido del usuario
-     */
-    detectUserLanguage(interaction) {
-        // Prioridad: Usuario > Servidor > Locale de Discord > Default
-        
-        const userId = interaction.user.id;
-        if (this.userLanguages.has(userId)) {
-            return this.userLanguages.get(userId);
-        }
-
-        const guildId = interaction.guild?.id;
-        if (guildId && this.guildLanguages.has(guildId)) {
-            return this.guildLanguages.get(guildId);
-        }
-
-        // Usar locale de Discord
-        const discordLocale = interaction.locale || interaction.guild?.preferredLocale;
-        if (discordLocale) {
-            const langCode = discordLocale.split('-')[0]; // 'es-ES' -> 'es'
-            if (this.supportedLanguages.includes(langCode)) {
-                return langCode;
-            }
-        }
-
-        return this.defaultLanguage;
-    }
-
-    /**
-     * Obtiene todas las traducciones de una clave en todos los idiomas
-     */
-    getAllTranslations(key) {
-        const result = {};
-        
-        for (const [langCode, translations] of this.languages.entries()) {
-            result[langCode] = this.get(key, langCode);
-        }
-
-        return result;
-    }
-
-    /**
-     * Obtiene información sobre idiomas soportados
+     * Obtiene lista de idiomas soportados
      */
     getSupportedLanguages() {
-        return this.supportedLanguages.map(code => ({
-            code,
-            name: this.get('language.name', code),
-            nativeName: this.get('language.nativeName', code),
-            flag: this.get('language.flag', code)
+        return this.supportedLanguages.map(lang => ({
+            code: lang,
+            name: this.translations[lang].language.name,
+            nativeName: this.translations[lang].language.nativeName,
+            flag: this.translations[lang].language.flag
         }));
     }
 }
 
 // Singleton
-const languageSystem = new LanguageSystem();
+const i18n = new LanguageSystem();
 
-// Inicializar al importar
-languageSystem.initialize().catch(console.error);
-
-module.exports = languageSystem;
+module.exports = i18n;
