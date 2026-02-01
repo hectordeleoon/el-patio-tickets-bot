@@ -3,7 +3,8 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
-const checkTickets48h = require('./utils/checkTickets48h');
+// 🔥 NUEVO SISTEMA UNIFICADO 48H / 72H
+const checkTickets = require('./utils/checkTickets');
 
 const client = new Client({
     intents: [
@@ -18,23 +19,33 @@ const client = new Client({
 
 client.commands = new Collection();
 
-/* CARGAR COMANDOS */
+/* ===============================
+   CARGAR COMANDOS
+================================ */
 const commandsPath = path.join(__dirname, 'commands');
-for (const file of fs.readdirSync(commandsPath)) {
+for (const file of fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))) {
     const cmd = require(path.join(commandsPath, file));
     client.commands.set(cmd.data.name, cmd);
 }
 
-/* CARGAR EVENTOS */
+/* ===============================
+   CARGAR EVENTOS
+================================ */
 const eventsPath = path.join(__dirname, 'events');
-for (const file of fs.readdirSync(eventsPath)) {
+for (const file of fs.readdirSync(eventsPath).filter(f => f.endsWith('.js'))) {
     const evt = require(path.join(eventsPath, file));
     client.on(evt.name, (...args) => evt.execute(...args, client));
 }
 
-/* REVISIÓN AUTOMÁTICA CADA HORA */
+/* ===============================
+   ⏱️ REVISIÓN AUTOMÁTICA
+   cada 10 minutos (recomendado)
+================================ */
 setInterval(() => {
-    checkTickets48h(client);
-}, 60 * 60 * 1000);
+    checkTickets(client).catch(console.error);
+}, 10 * 60 * 1000);
 
+/* ===============================
+   LOGIN
+================================ */
 client.login(process.env.DISCORD_TOKEN);
