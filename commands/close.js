@@ -12,7 +12,7 @@ module.exports = {
             option
                 .setName('razon')
                 .setDescription('Razón del cierre')
-                .setRequired(false)
+                .setRequired(true)
         ),
     
     async execute(interaction, client) {
@@ -40,7 +40,7 @@ module.exports = {
         }
         
         try {
-            const reason = interaction.options.getString('razon') || 'Manual';
+            const reason = interaction.options.getString('razon');
             
             // Generar transcripción
             let transcriptPaths = null;
@@ -61,17 +61,22 @@ module.exports = {
                 description: config.messages.ticketClosed,
                 fields: [
                     {
-                        name: 'Cerrado por',
-                        value: `<@${interaction.user.id}>`,
+                        name: '👤 Creado por',
+                        value: `<@${ticket.userId}>`,
                         inline: true
                     },
                     {
-                        name: 'Razón',
+                        name: '🛡️ Cerrado por',
+                        value: `<@${interaction.user.id}> (${interaction.user.username})`,
+                        inline: true
+                    },
+                    {
+                        name: '📝 Razón del cierre',
                         value: reason,
-                        inline: true
+                        inline: false
                     },
                     {
-                        name: 'Transcripción',
+                        name: '📄 Transcripción',
                         value: transcriptPaths ? '✅ Generada' : '❌ Desactivada',
                         inline: true
                     }
@@ -112,10 +117,6 @@ module.exports = {
             await interaction.channel.permissionOverwrites.edit(ticket.userId, {
                 SendMessages: false
             });
-            
-            // Renombrar canal
-            const closedName = interaction.channel.name.replace('ticket-', 'cerrado-');
-            await interaction.channel.setName(closedName);
             
             // Log
             await logTicketClose(client, ticket, interaction.user, reason, transcriptPaths);
@@ -160,8 +161,8 @@ async function logTicketClose(client, ticket, user, reason, transcriptPaths) {
                 { name: 'ID', value: ticket.ticketId, inline: true },
                 { name: 'Tipo', value: ticket.type, inline: true },
                 { name: 'Usuario', value: `<@${ticket.userId}>`, inline: true },
-                { name: 'Cerrado por', value: `<@${user.id}>`, inline: true },
-                { name: 'Razón', value: reason, inline: true },
+                { name: 'Cerrado por', value: `<@${user.id}> (${user.username})`, inline: true },
+                { name: 'Razón', value: reason, inline: false },
                 { name: 'Transcripción', value: transcriptPaths ? '✅' : '❌', inline: true }
             ],
             timestamp: new Date()
