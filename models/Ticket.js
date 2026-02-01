@@ -34,6 +34,13 @@ const ticketSchema = new mongoose.Schema({
         username: String,
         timestamp: Date
     },
+    // Staff adicionales añadidos durante el ticket
+    additionalStaff: [{
+        userId: String,
+        username: String,
+        addedBy: String,
+        timestamp: Date
+    }],
     proofsProvided: {
         type: Boolean,
         default: false
