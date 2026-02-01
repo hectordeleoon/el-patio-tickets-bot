@@ -19,7 +19,7 @@ module.exports = async (client) => {
 
     for (const t of tickets) {
 
-        // 🔴 RECLAMADO Y ABANDONADO
+        /* ===== STAFF ABANDONA ===== */
         if (
             t.status === 'claimed' &&
             t.claimedAt &&
@@ -27,7 +27,7 @@ module.exports = async (client) => {
             !t.lastStaffMessageAt
         ) {
             await staffChannel.send(
-                `🚨 **Ticket abandonado por staff**\n` +
+                `🚨 **Ticket abandonado**\n` +
                 `📌 Canal: <#${t.channelId}>\n` +
                 `🛡️ Staff: <@${t.claimedBy.userId}>`
             );
@@ -39,32 +39,20 @@ module.exports = async (client) => {
                 'Ticket reclamado y no trabajado en 48h'
             );
 
-            // Reabrir ticket
             t.status = 'open';
             t.claimedBy = null;
             t.claimedAt = null;
             await t.save();
-
-            const ch = await client.channels.fetch(t.channelId).catch(() => null);
-            if (ch) {
-                ch.send(
-                    '🔁 Ticket liberado automáticamente por abandono del staff.\n' +
-                    'Otro staff puede atenderlo.'
-                ).catch(() => {});
-            }
         }
 
-        // 🔒 AUTO-CIERRE FINAL
-        if (
-            t.status === 'open' &&
-            now - t.createdAt.getTime() >= H72
-        ) {
+        /* ===== AUTO-CIERRE ===== */
+        if (t.status === 'open' && now - t.createdAt.getTime() >= H72) {
             t.status = 'closed';
             t.closedAt = new Date();
             t.closedBy = {
                 userId: 'SYSTEM',
                 username: 'AutoClose',
-                reason: 'Ticket inactivo 72h'
+                reason: 'Inactividad 72h'
             };
             await t.save();
 
