@@ -8,7 +8,8 @@ const staffStatsSchema = new mongoose.Schema({
     sanctions: { type: Number, default: 0 },
 
     lastSanctionAt: Date,
-    warned: { type: Boolean, default: false }
+
+    roleRemoved: { type: Boolean, default: false }
 });
 
 module.exports = mongoose.model('StaffStats', staffStatsSchema);
