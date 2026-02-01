@@ -11,13 +11,6 @@ module.exports = {
         const ticket = await Ticket.findOne({ channelId: message.channel.id });
         if (!ticket) return;
 
-        await ticket.addMessage(
-            message.author.id,
-            message.author.tag,
-            message.content,
-            message.attachments.map(a => a.url)
-        );
-
         const typeInfo = config.ticketTypes[ticket.type];
 
         const isStaff = typeInfo.roles.some(roleKey => {
@@ -26,7 +19,8 @@ module.exports = {
         });
 
         if (isStaff && ticket.status === 'claimed') {
-            await ticket.markStaffActivity();
+            ticket.lastStaffMessageAt = new Date();
+            await ticket.save();
         }
     }
 };
