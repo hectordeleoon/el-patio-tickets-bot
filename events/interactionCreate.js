@@ -13,11 +13,15 @@ const Ticket = require('../models/Ticket');
 const Stats = require('../models/Stats');
 const proofDetector = require('../utils/proofDetector');
 const transcriptGenerator = require('../utils/transcriptGenerator');
+const idiomaCommand = require('../commands/idioma'); // 👈 IMPORTANTE
 
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction, client) {
 
+        // ============================================================
+        // SLASH COMMANDS
+        // ============================================================
         if (interaction.isChatInputCommand()) {
             const command = client.commands.get(interaction.commandName);
             if (!command) return;
@@ -26,10 +30,16 @@ module.exports = {
                 await command.execute(interaction, client);
             } catch (error) {
                 console.error(error);
-                await interaction.reply({ content: '❌ Error ejecutando comando.', ephemeral: true });
+                await interaction.reply({
+                    content: '❌ Error ejecutando comando.',
+                    ephemeral: true
+                });
             }
         }
 
+        // ============================================================
+        // BUTTONS
+        // ============================================================
         if (interaction.isButton()) {
             const [action, param] = interaction.customId.split('_');
 
@@ -42,10 +52,33 @@ module.exports = {
                 if (action === 'addstaff') return handleAddStaffModal(interaction);
             } catch (error) {
                 console.error(error);
-                await interaction.reply({ content: '❌ Error procesando acción.', ephemeral: true });
+                await interaction.reply({
+                    content: '❌ Error procesando acción.',
+                    ephemeral: true
+                });
             }
         }
 
+        // ============================================================
+        // SELECT MENUS (IDIOMA)
+        // ============================================================
+        if (interaction.isStringSelectMenu()) {
+            try {
+                if (interaction.customId === 'language_select_user') {
+                    await idiomaCommand.handleUserLanguageSelect(interaction);
+                }
+            } catch (error) {
+                console.error(error);
+                await interaction.reply({
+                    content: '❌ Error al cambiar el idioma.',
+                    ephemeral: true
+                });
+            }
+        }
+
+        // ============================================================
+        // MODALS
+        // ============================================================
         if (interaction.isModalSubmit()) {
             try {
                 if (interaction.customId === 'close_reason_modal') {
@@ -56,14 +89,17 @@ module.exports = {
                 }
             } catch (error) {
                 console.error(error);
-                await interaction.reply({ content: '❌ Error procesando formulario.', ephemeral: true });
+                await interaction.reply({
+                    content: '❌ Error procesando formulario.',
+                    ephemeral: true
+                });
             }
         }
     }
 };
 
 // ============================================================
-// CREAR TICKET (ANTI-SPAM FIX)
+// CREAR TICKET
 // ============================================================
 async function handleTicketCreate(interaction, ticketType) {
     await interaction.deferReply({ ephemeral: true });
@@ -81,7 +117,10 @@ async function handleTicketCreate(interaction, ticketType) {
 
         if (recentCount >= config.system.ticketLimit24h) {
             return interaction.editReply({
-                content: config.messages.antiSpamWarning.replace('{count}', config.system.ticketLimit24h)
+                content: config.messages.antiSpamWarning.replace(
+                    '{count}',
+                    config.system.ticketLimit24h
+                )
             });
         }
     }
@@ -125,7 +164,7 @@ async function handleTicketCreate(interaction, ticketType) {
         ]
     });
 
-    const ticket = await Ticket.create({
+    await Ticket.create({
         ticketId,
         channelId: channel.id,
         userId,
@@ -169,7 +208,7 @@ async function handleTicketCreate(interaction, ticketType) {
 // ============================================================
 // CLAIM
 // ============================================================
-async function handleTicketClaim(interaction, client) {
+async function handleTicketClaim(interaction) {
     await interaction.deferReply({ ephemeral: true });
 
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
@@ -212,8 +251,8 @@ async function handleCloseWithReason(interaction) {
     if (!ticket) return;
 
     await ticket.close(interaction.user.id, interaction.user.tag, reason);
-
     await interaction.channel.setParent(config.categories.closed);
+
     await interaction.editReply({ content: '🔒 Ticket cerrado.' });
 }
 
