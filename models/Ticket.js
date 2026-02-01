@@ -34,7 +34,6 @@ const ticketSchema = new mongoose.Schema({
     claimedAt: Date,
     lastStaffMessageAt: Date,
 
-    alert24hSent: { type: Boolean, default: false },
     alert48hSent: { type: Boolean, default: false },
 
     additionalStaff: [{
@@ -66,7 +65,13 @@ const ticketSchema = new mongoose.Schema({
    MÉTODOS
 ================================ */
 
-ticketSchema.methods.addMessage = function (authorId, authorName, content, attachments = []) {
+ticketSchema.methods.addMessage = function (
+    authorId,
+    authorName,
+    content,
+    attachments = [],
+    isStaff = false
+) {
     this.messages.push({
         authorId,
         authorName,
@@ -74,6 +79,12 @@ ticketSchema.methods.addMessage = function (authorId, authorName, content, attac
         attachments,
         timestamp: new Date()
     });
+
+    if (isStaff) {
+        this.lastStaffMessageAt = new Date();
+        this.alert48hSent = false;
+    }
+
     return this.save();
 };
 
@@ -81,14 +92,7 @@ ticketSchema.methods.claim = function (userId, username) {
     this.status = 'claimed';
     this.claimedBy = { userId, username };
     this.claimedAt = new Date();
-    this.alert24hSent = false;
-    this.alert48hSent = false;
-    return this.save();
-};
-
-ticketSchema.methods.markStaffActivity = function () {
     this.lastStaffMessageAt = new Date();
-    this.alert24hSent = false;
     this.alert48hSent = false;
     return this.save();
 };
