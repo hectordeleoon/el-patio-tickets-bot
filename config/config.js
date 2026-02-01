@@ -1,41 +1,69 @@
 require('dotenv').config();
 
 module.exports = {
-    // Configuración de Discord
+    /* =======================
+       DISCORD
+    ======================= */
     discord: {
         token: process.env.DISCORD_TOKEN,
         guildId: process.env.GUILD_ID,
         clientId: process.env.CLIENT_ID
     },
 
-    // Canales
+    /* =======================
+       CANALES
+    ======================= */
     channels: {
         panel: process.env.PANEL_CHANNEL_ID,
         logs: process.env.LOG_CHANNEL_ID,
+        staffChat: process.env.STAFF_CHAT_CHANNEL_ID, // 🔔 ALERTAS STAFF
         test: process.env.TEST_CHANNEL_ID || null
     },
 
-    // Categorías
+    /* =======================
+       CATEGORÍAS
+    ======================= */
     categories: {
         open: process.env.OPEN_CATEGORY_ID,
         closed: process.env.CLOSED_CATEGORY_ID
     },
 
-    // Roles de Staff
+    /* =======================
+       ROLES
+    ======================= */
     roles: {
         support: process.env.SUPPORT_ROLE_ID,
         finance: process.env.FINANCE_ROLE_ID,
         moderator: process.env.MODERATOR_ROLE_ID,
         admin: process.env.ADMIN_ROLE_ID,
-        seniorAdmin: process.env.SENIOR_ADMIN_ROLE_ID
+        seniorAdmin: process.env.SENIOR_ADMIN_ROLE_ID,
+
+        // 🔥 ROL PRINCIPAL DE STAFF (para quitarlo automáticamente)
+        staff: process.env.STAFF_ROLE_ID
     },
 
-    // Base de datos
+    /* =======================
+       SANCIONES STAFF
+    ======================= */
+    staffSanctions: {
+        warnAfter: 1,          // advertencia
+        timeoutAfter: 2,       // timeout automático
+        removeRoleAfter: 3,    // ❌ quitar rol staff
+        timeoutDuration: 60    // minutos (1h)
+    },
+
+    /* =======================
+       BASE DE DATOS
+    ======================= */
     database: {
-        mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/elpatio_tickets'
+        mongoUri:
+            process.env.MONGODB_URI ||
+            'mongodb://localhost:27017/elpatio_tickets'
     },
 
-    // Configuración del sistema
+    /* =======================
+       SISTEMA
+    ======================= */
     system: {
         inactivityWarning: parseInt(process.env.INACTIVITY_WARNING_TIME) || 42,
         inactivityClose: parseInt(process.env.INACTIVITY_CLOSE_TIME) || 44,
@@ -47,7 +75,9 @@ module.exports = {
         transcriptFormat: process.env.TRANSCRIPT_FORMAT || 'both'
     },
 
-    // Personalización visual
+    /* =======================
+       BRANDING
+    ======================= */
     branding: {
         serverName: process.env.SERVER_NAME || 'EL PATIO RP',
         panelGif: process.env.PANEL_GIF_URL || '',
@@ -67,7 +97,9 @@ module.exports = {
         }
     },
 
-    // Tipos de tickets
+    /* =======================
+       TIPOS DE TICKETS
+    ======================= */
     ticketTypes: {
         'soporte-general': {
             emoji: '🟢',
@@ -111,7 +143,9 @@ module.exports = {
         }
     },
 
-    // Mensajes del sistema
+    /* =======================
+       MENSAJES
+    ======================= */
     messages: {
         panelTitle: '🎫 CENTRO DE ATENCIÓN – EL PATIO RP',
         panelDescription: `Bienvenido al Sistema Oficial de Tickets de EL PATIO RP.
@@ -128,25 +162,35 @@ Nuestro equipo te atenderá a la brevedad.
 • Reportes sin pruebas pueden no proceder
 • El abuso del sistema será sancionado
 • Mantén respeto en todo momento`,
-        
-        ticketCreated: '👋 **Saludos!**\n\nGracias por contactarnos. Por favor, detállanos tu situación lo más claro posible.\n\nUn miembro del staff atenderá tu ticket a la brevedad.',
-        
-        ticketCreatedProof: '⚠️ **REPORTE DE STAFF - PRUEBAS OBLIGATORIAS**\n\nPara proceder con tu reporte, es **OBLIGATORIO** adjuntar pruebas válidas:\n\n✅ **Pruebas aceptadas:**\n🔗 Links (clips de Twitch, videos de YouTube, etc.)\n🖼️ Imágenes (capturas de pantalla)\n🎥 Videos (.mp4, .mov, etc.)\n\n❌ **Reportes sin pruebas pueden ser cerrados sin revisión.**\n\nPor favor, adjunta tus pruebas en el siguiente mensaje.',
-        
-        proofsDetected: '✅ **Pruebas recibidas y verificadas**\n\nTu reporte ha sido registrado correctamente. Un administrador superior revisará el caso.',
-        
-        ticketClaimed: '✅ **Ticket asignado**\n\nEste ticket ahora está siendo atendido por {staff}.\nOtros miembros del staff pueden ver la conversación pero solo {staff} puede responder.',
-        
-        inactivityWarning: '⚠️ **Aviso de Inactividad**\n\nEste ticket se cerrará automáticamente en **2 horas** por falta de actividad.\n\nSi aún necesitas ayuda, envía un mensaje para mantener el ticket abierto.',
-        
-        ticketClosed: '🔒 **Ticket Cerrado**\n\nEste ticket ha sido cerrado. Se ha generado una transcripción completa para nuestros registros.\n\nSi necesitas ayuda adicional, puedes abrir un nuevo ticket en el panel principal.',
-        
-        maxTicketsReached: '⚠️ **Límite de Tickets Alcanzado**\n\nYa tienes {count} tickets abiertos. Por favor, espera a que se cierren antes de abrir uno nuevo.\n\nEsto ayuda a mantener un servicio de calidad para todos.',
-        
-        antiSpamWarning: '⚠️ **Sistema Anti-Spam**\n\nHas alcanzado el límite de {count} tickets en 24 horas.\nPor favor, espera antes de abrir nuevos tickets.\n\nSi es urgente, contacta a un administrador directamente.'
+
+        ticketCreated:
+            '👋 **Saludos!**\n\nGracias por contactarnos. Por favor, detállanos tu situación lo más claro posible.\n\nUn miembro del staff atenderá tu ticket a la brevedad.',
+
+        ticketCreatedProof:
+            '⚠️ **REPORTE DE STAFF - PRUEBAS OBLIGATORIAS**\n\nAdjunta pruebas válidas para continuar.',
+
+        proofsDetected:
+            '✅ **Pruebas recibidas y verificadas**\n\nTu reporte ha sido registrado correctamente.',
+
+        ticketClaimed:
+            '✅ **Ticket asignado**\n\nEste ticket está siendo atendido por {staff}.',
+
+        inactivityWarning:
+            '⚠️ **Aviso de Inactividad**\n\nEste ticket se cerrará automáticamente si no hay respuesta.',
+
+        ticketClosed:
+            '🔒 **Ticket Cerrado**\n\nGracias por contactar a EL PATIO RP.',
+
+        maxTicketsReached:
+            '⚠️ **Límite de Tickets Alcanzado**',
+
+        antiSpamWarning:
+            '⚠️ **Sistema Anti-Spam Activado**'
     },
 
-    // Modo desarrollo
+    /* =======================
+       DESARROLLO
+    ======================= */
     dev: {
         enabled: process.env.DEV_MODE === 'true',
         logLevel: 'debug'
