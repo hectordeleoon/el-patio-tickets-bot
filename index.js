@@ -3,6 +3,8 @@ const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
 
+const checkTickets48h = require('./utils/checkTickets48h');
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -15,37 +17,24 @@ const client = new Client({
 });
 
 client.commands = new Collection();
-client.tickets = new Collection();
 
-// Cargar comandos
+/* CARGAR COMANDOS */
 const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
-
-for (const file of commandFiles) {
-    const filePath = path.join(commandsPath, file);
-    const command = require(filePath);
-    if ('data' in command && 'execute' in command) {
-        client.commands.set(command.data.name, command);
-    }
+for (const file of fs.readdirSync(commandsPath)) {
+    const cmd = require(path.join(commandsPath, file));
+    client.commands.set(cmd.data.name, cmd);
 }
 
-// Cargar eventos
+/* CARGAR EVENTOS */
 const eventsPath = path.join(__dirname, 'events');
-const eventFiles = fs.readdirSync(eventsPath).filter(file => file.endsWith('.js'));
-
-for (const file of eventFiles) {
-    const filePath = path.join(eventsPath, file);
-    const event = require(filePath);
-    if (event.once) {
-        client.once(event.name, (...args) => event.execute(...args, client));
-    } else {
-        client.on(event.name, (...args) => event.execute(...args, client));
-    }
+for (const file of fs.readdirSync(eventsPath)) {
+    const evt = require(path.join(eventsPath, file));
+    client.on(evt.name, (...args) => evt.execute(...args, client));
 }
 
-// Manejo de errores
-process.on('unhandledRejection', error => {
-    console.error('Error no manejado:', error);
-});
+/* REVISIÓN AUTOMÁTICA CADA HORA */
+setInterval(() => {
+    checkTickets48h(client);
+}, 60 * 60 * 1000);
 
 client.login(process.env.DISCORD_TOKEN);
