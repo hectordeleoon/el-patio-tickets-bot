@@ -16,7 +16,7 @@ module.exports = {
     channels: {
         panel: process.env.PANEL_CHANNEL_ID,
         logs: process.env.LOG_CHANNEL_ID,
-        staffChat: process.env.STAFF_CHAT_CHANNEL_ID, // 🔔 ALERTAS STAFF
+        staffChat: process.env.STAFF_CHAT_CHANNEL_ID || null,
         test: process.env.TEST_CHANNEL_ID || null
     },
 
@@ -38,17 +38,17 @@ module.exports = {
         admin: process.env.ADMIN_ROLE_ID,
         seniorAdmin: process.env.SENIOR_ADMIN_ROLE_ID,
 
-        // 🔥 ROL PRINCIPAL DE STAFF (para quitarlo automáticamente)
+        // 🔥 Rol general de staff (para sanciones automáticas)
         staff: process.env.STAFF_ROLE_ID
     },
 
     /* =======================
-       SANCIONES STAFF
+       SANCIONES AUTOMÁTICAS STAFF
     ======================= */
     staffSanctions: {
-        warnAfter: 1,          // advertencia
-        timeoutAfter: 2,       // timeout automático
-        removeRoleAfter: 3,    // ❌ quitar rol staff
+        warnAfter: 1,          // 1 falta → advertencia
+        timeoutAfter: 2,       // 2 faltas → timeout
+        removeRoleAfter: 3,    // 3 faltas → quitar rol staff
         timeoutDuration: 60    // minutos (1h)
     },
 
@@ -65,11 +65,21 @@ module.exports = {
        SISTEMA
     ======================= */
     system: {
-        inactivityWarning: parseInt(process.env.INACTIVITY_WARNING_TIME) || 42,
-        inactivityClose: parseInt(process.env.INACTIVITY_CLOSE_TIME) || 44,
+        /* ⏱️ ALERTAS DE INACTIVIDAD */
+        inactivityWarning: parseInt(process.env.INACTIVITY_WARNING_TIME) || 48, // horas
+        inactivityClose: parseInt(process.env.INACTIVITY_CLOSE_TIME) || 72,     // horas
+
+        /* 🎫 LÍMITES */
         maxTicketsPerUser: parseInt(process.env.MAX_TICKETS_PER_USER) || 3,
         ticketLimit24h: parseInt(process.env.TICKET_LIMIT_24H) || 3,
+
+        /* 🚫 ANTI-SPAM REAL */
         antiSpamEnabled: process.env.ANTI_SPAM_ENABLED === 'true',
+
+        // 🔥 NUEVO → bloqueo real por abuso
+        abuseCooldownHours: 12, // horas bloqueado sin poder crear tickets
+
+        /* OTROS */
         dmNotifications: process.env.DM_NOTIFICATIONS === 'true',
         autoTranscripts: process.env.AUTO_TRANSCRIPTS === 'true',
         transcriptFormat: process.env.TRANSCRIPT_FORMAT || 'both'
@@ -148,44 +158,34 @@ module.exports = {
     ======================= */
     messages: {
         panelTitle: '🎫 CENTRO DE ATENCIÓN – EL PATIO RP',
+
         panelDescription: `Bienvenido al Sistema Oficial de Tickets de EL PATIO RP.
 
 Selecciona una categoría para iniciar tu solicitud.
 Nuestro equipo te atenderá a la brevedad.
 
-📌 **¿Cómo funciona?**
-1️⃣ Elige una categoría
-2️⃣ Describe tu situación
-3️⃣ Un staff atenderá tu caso
-
-⚠️ **Importante**
-• Reportes sin pruebas pueden no proceder
-• El abuso del sistema será sancionado
-• Mantén respeto en todo momento`,
+⚠️ El abuso del sistema será sancionado.`,
 
         ticketCreated:
-            '👋 **Saludos!**\n\nGracias por contactarnos. Por favor, detállanos tu situación lo más claro posible.\n\nUn miembro del staff atenderá tu ticket a la brevedad.',
+            '👋 **Saludos!**\n\nDescribe tu situación con el mayor detalle posible.',
 
         ticketCreatedProof:
-            '⚠️ **REPORTE DE STAFF - PRUEBAS OBLIGATORIAS**\n\nAdjunta pruebas válidas para continuar.',
+            '⚠️ **PRUEBAS OBLIGATORIAS**\nAdjunta imágenes, videos o enlaces.',
 
         proofsDetected:
-            '✅ **Pruebas recibidas y verificadas**\n\nTu reporte ha sido registrado correctamente.',
-
-        ticketClaimed:
-            '✅ **Ticket asignado**\n\nEste ticket está siendo atendido por {staff}.',
+            '✅ **Pruebas recibidas correctamente.**',
 
         inactivityWarning:
-            '⚠️ **Aviso de Inactividad**\n\nEste ticket se cerrará automáticamente si no hay respuesta.',
+            '⚠️ **Aviso de Inactividad**\nEste ticket se cerrará automáticamente si no hay respuesta.',
 
         ticketClosed:
-            '🔒 **Ticket Cerrado**\n\nGracias por contactar a EL PATIO RP.',
+            '🔒 **Ticket Cerrado**\nGracias por contactar a EL PATIO RP.',
 
         maxTicketsReached:
-            '⚠️ **Límite de Tickets Alcanzado**',
+            '⚠️ Ya tienes el máximo de tickets abiertos permitidos.',
 
         antiSpamWarning:
-            '⚠️ **Sistema Anti-Spam Activado**'
+            '🚫 Has creado demasiados tickets.\nTu acceso al sistema ha sido bloqueado temporalmente.'
     },
 
     /* =======================
