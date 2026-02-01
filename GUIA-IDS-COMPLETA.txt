@@ -1,0 +1,339 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║            📝 GUÍA COMPLETA: CÓMO OBTENER TODOS LOS IDs NECESARIOS        ║
+║                        EL PATIO RP - BOT DE TICKETS                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+⚙️ PASO 0: ACTIVAR MODO DESARROLLADOR EN DISCORD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Abre Discord
+2. Ve a "Ajustes de Usuario" ⚙️ (rueda dentada abajo a la izquierda)
+3. En el menú lateral → "Avanzado"
+4. Activa "Modo Desarrollador" ✅
+5. Cierra ajustes
+
+Ahora podrás copiar IDs haciendo click derecho en cualquier elemento.
+
+
+🤖 PARTE 1: CREAR Y CONFIGURAR EL BOT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📍 OBTENER DISCORD_TOKEN Y CLIENT_ID:
+
+1. Ve a: https://discord.com/developers/applications
+
+2. Haz clic en "New Application"
+   - Nombre: EL PATIO Tickets
+   - Acepta términos
+   - Clic en "Create"
+
+3. COPIAR CLIENT_ID:
+   - En la página "General Information"
+   - Busca "APPLICATION ID"
+   - Clic en "Copy" 📋
+   - Pega en .env → CLIENT_ID=ID_QUE_COPIASTE
+
+4. Crear el Bot:
+   - En el menú lateral → "Bot"
+   - Clic en "Add Bot" → "Yes, do it!"
+
+5. COPIAR DISCORD_TOKEN:
+   - En la sección "TOKEN"
+   - Clic en "Reset Token"
+   - Clic en "Yes, do it!"
+   - Clic en "Copy" 📋
+   - Pega en .env → DISCORD_TOKEN=TOKEN_QUE_COPIASTE
+   
+   ⚠️ IMPORTANTE: Este token es SECRETO. No lo compartas con nadie.
+
+6. Activar Intents (CRÍTICO):
+   Baja hasta "Privileged Gateway Intents"
+   Activa TODAS estas opciones:
+   ✅ Presence Intent
+   ✅ Server Members Intent
+   ✅ Message Content Intent
+   
+   Clic en "Save Changes"
+
+7. Invitar el Bot a tu servidor:
+   - En el menú lateral → "OAuth2" → "URL Generator"
+   - En SCOPES selecciona:
+     ✅ bot
+     ✅ applications.commands
+   
+   - En BOT PERMISSIONS selecciona:
+     ✅ Administrator (o marca todos los permisos manualmente)
+   
+   - Copia la URL generada abajo
+   - Pega en tu navegador
+   - Selecciona tu servidor
+   - Autoriza
+
+
+🏠 PARTE 2: CONFIGURAR TU SERVIDOR DE DISCORD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📍 OBTENER GUILD_ID:
+
+1. En Discord, ve a tu servidor
+2. Click DERECHO en el nombre del servidor (arriba a la izquierda)
+3. Clic en "Copiar ID" 📋
+4. Pega en .env → GUILD_ID=ID_QUE_COPIASTE
+
+
+👥 PARTE 3: CREAR Y COPIAR IDs DE ROLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ MUY IMPORTANTE: Los roles deben estar en este ORDEN (de arriba hacia abajo):
+
+1. Configuración del Servidor → Roles → Crear Rol
+
+2. Crear estos roles EN ORDEN:
+
+   🤖 Ticket Bot (Color: #7289da - Azul Discord)
+      Permisos: ✅ Administrador
+      ⚠️ DEBE ESTAR EN LA POSICIÓN MÁS ALTA (arriba de todos los staff)
+      
+   👑 Admin Superior (Color: #e74c3c - Rojo)
+      Permisos: según necesites
+      
+   👑 Admin (Color: #e67e22 - Naranja)
+      Permisos: según necesites
+      
+   🛡️ Moderador (Color: #3498db - Azul)
+      Permisos: según necesites
+      
+   💰 Finanzas (Color: #2ecc71 - Verde)
+      Permisos: según necesites
+      
+   🛠️ Soporte (Color: #95a5a6 - Gris)
+      Permisos: según necesites
+
+3. COPIAR IDs DE CADA ROL:
+   - Click DERECHO en el rol
+   - "Copiar ID" 📋
+   
+   Pega en .env:
+   SUPPORT_ROLE_ID=ID_del_rol_Soporte
+   FINANCE_ROLE_ID=ID_del_rol_Finanzas
+   MODERATOR_ROLE_ID=ID_del_rol_Moderador
+   ADMIN_ROLE_ID=ID_del_rol_Admin
+   SENIOR_ADMIN_ROLE_ID=ID_del_rol_Admin_Superior
+
+4. ASIGNAR EL ROL AL BOT:
+   - Click DERECHO en el bot (en la lista de miembros)
+   - Roles
+   - Selecciona "🤖 Ticket Bot"
+
+
+📁 PARTE 4: CREAR Y COPIAR IDs DE CATEGORÍAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Crear Categoría "🎫┃Tickets Abiertos":
+   - Click derecho en tu servidor
+   - "Crear Categoría"
+   - Nombre: 🎫┃Tickets Abiertos
+   
+   Permisos:
+   - @everyone: ❌ Ver canales
+   - 🤖 Ticket Bot: ✅ Todos los permisos
+   - Roles de staff: ✅ Ver canales (el bot ajustará el resto)
+
+2. COPIAR ID:
+   - Click DERECHO en la categoría
+   - "Copiar ID" 📋
+   - Pega en .env → OPEN_CATEGORY_ID=ID_QUE_COPIASTE
+
+3. Crear Categoría "🔒┃Tickets Cerrados":
+   - Mismo proceso que arriba
+   - Nombre: 🔒┃Tickets Cerrados
+   
+4. COPIAR ID:
+   - Click DERECHO en la categoría
+   - "Copiar ID" 📋
+   - Pega en .env → CLOSED_CATEGORY_ID=ID_QUE_COPIASTE
+
+
+📢 PARTE 5: CREAR Y COPIAR IDs DE CANALES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Crear Canal "🎫┃ticket-panel":
+   - Click derecho en cualquier categoría
+   - "Crear Canal"
+   - Tipo: Canal de Texto
+   - Nombre: 🎫┃ticket-panel
+   
+   Permisos:
+   - @everyone: ✅ Ver canal, ❌ Enviar mensajes
+   - 🤖 Ticket Bot: ✅ Todos los permisos
+
+2. COPIAR ID:
+   - Click DERECHO en el canal
+   - "Copiar ID" 📋
+   - Pega en .env → PANEL_CHANNEL_ID=ID_QUE_COPIASTE
+
+3. Crear Canal "📑┃logs-tickets":
+   - Mismo proceso
+   - Nombre: 📑┃logs-tickets
+   
+   Permisos:
+   - @everyone: ❌ Ver canal
+   - Admins: ✅ Ver canal
+   - 🤖 Ticket Bot: ✅ Todos los permisos
+
+4. COPIAR ID:
+   - Click DERECHO en el canal
+   - "Copiar ID" 📋
+   - Pega en .env → LOG_CHANNEL_ID=ID_QUE_COPIASTE
+
+
+🗄️ PARTE 6: CONFIGURAR MONGODB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+OPCIÓN A: MongoDB Atlas (RECOMENDADO - Gratis en la nube)
+──────────────────────────────────────────────────────────
+
+1. Ve a: https://www.mongodb.com/cloud/atlas
+
+2. Clic en "Try Free"
+
+3. Crea cuenta (puedes usar Google/GitHub)
+
+4. Crea un cluster GRATUITO (M0):
+   - Elige proveedor (AWS recomendado)
+   - Región más cercana a ti
+   - Cluster Name: el-patio-tickets
+   - Clic en "Create"
+
+5. Configurar Seguridad:
+   
+   a) Database Access:
+      - Clic en "Add New Database User"
+      - Username: elpatio_admin
+      - Password: (genera uno seguro o crea uno)
+      - Database User Privileges: "Read and write to any database"
+      - Clic en "Add User"
+   
+   b) Network Access:
+      - Clic en "Add IP Address"
+      - Clic en "Allow Access from Anywhere" (0.0.0.0/0)
+      - Clic en "Confirm"
+
+6. Obtener Connection String:
+   - Ve a "Database" (menú lateral)
+   - Clic en "Connect" en tu cluster
+   - Clic en "Connect your application"
+   - Copia la cadena de conexión
+   
+   Ejemplo:
+   mongodb+srv://elpatio_admin:<password>@cluster0.xxxxx.mongodb.net/?retryWrites=true&w=majority
+
+7. Editar y pegar en .env:
+   - Reemplaza <password> con tu contraseña
+   - Añade el nombre de la base de datos después de .net/
+   
+   Ejemplo final:
+   MONGODB_URI=mongodb+srv://elpatio_admin:tupassword@cluster0.xxxxx.mongodb.net/elpatio_tickets?retryWrites=true&w=majority
+
+
+OPCIÓN B: MongoDB Local
+──────────────────────────────────────────────────────────
+
+Si prefieres instalar MongoDB localmente:
+
+Windows:
+1. Descarga de: https://www.mongodb.com/try/download/community
+2. Instala con configuración por defecto
+3. MongoDB se ejecuta automáticamente
+
+Linux (Ubuntu/Debian):
+sudo apt-get update
+sudo apt-get install mongodb
+sudo systemctl start mongodb
+
+macOS:
+brew tap mongodb/brew
+brew install mongodb-community
+brew services start mongodb-community
+
+En .env:
+MONGODB_URI=mongodb://localhost:27017/elpatio_tickets
+
+
+🎨 PARTE 7: PERSONALIZACIÓN (OPCIONAL)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+GIF Animado para el Panel:
+
+1. Sube tu GIF a un host de imágenes:
+   - Imgur: https://imgur.com
+   - Giphy: https://giphy.com
+   - Discord mismo (sube a cualquier canal y copia el link)
+
+2. El GIF debe ser MENOR a 3MB
+
+3. Copia el link directo del GIF
+
+4. Pega en .env → PANEL_GIF_URL=https://i.imgur.com/tugif.gif
+
+Logo/Thumbnail:
+
+1. Mismo proceso que el GIF
+2. Pega en .env → PANEL_THUMBNAIL_URL=https://i.imgur.com/logo.png
+
+
+✅ CHECKLIST FINAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Antes de iniciar el bot, verifica que tengas TODOS estos valores en .env:
+
+□ DISCORD_TOKEN (debe empezar con MTI...)
+□ CLIENT_ID (número largo)
+□ GUILD_ID (número largo)
+□ PANEL_CHANNEL_ID (número largo)
+□ LOG_CHANNEL_ID (número largo)
+□ OPEN_CATEGORY_ID (número largo)
+□ CLOSED_CATEGORY_ID (número largo)
+□ SUPPORT_ROLE_ID (número largo)
+□ FINANCE_ROLE_ID (número largo)
+□ MODERATOR_ROLE_ID (número largo)
+□ ADMIN_ROLE_ID (número largo)
+□ SENIOR_ADMIN_ROLE_ID (número largo)
+□ MONGODB_URI (debe empezar con mongodb:// o mongodb+srv://)
+
+□ El bot está en tu servidor de Discord
+□ El rol 🤖 Ticket Bot está ARRIBA de todos los roles de staff
+□ Los canales y categorías existen
+□ MongoDB está configurado (local o Atlas)
+
+
+🚀 SIGUIENTE PASO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Una vez completado todo, ejecuta:
+
+cd el-patio-ticket-bot
+npm install
+npm run deploy
+npm start
+
+¡Y tu bot estará listo! 🎉
+
+
+💡 TIPS IMPORTANTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+• Si cambias algo en .env, debes REINICIAR el bot
+• NUNCA compartas tu .env con nadie
+• NUNCA subas .env a GitHub u otras plataformas
+• El .gitignore ya está configurado para proteger .env
+• Si pierdes tu TOKEN, puedes generar uno nuevo en Discord Developer Portal
+• Guarda una copia de seguridad de tu .env en un lugar seguro
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+                         EL PATIO RP • 2025
+                    Sistema de Tickets Premium v1.0
+
+═══════════════════════════════════════════════════════════════════════════════

@@ -1,0 +1,34 @@
+# Archivos de entorno
+.env
+.env.local
+.env.*.local
+
+# Dependencias de Node
+node_modules/
+package-lock.json
+yarn.lock
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Transcripciones (opcional - descomenta si no quieres subirlas)
+# transcripts/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archivos temporales
+*.tmp
+*.temp

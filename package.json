@@ -1,0 +1,34 @@
+{
+  "name": "el-patio-ticket-bot",
+  "version": "1.0.0",
+  "description": "Sistema Premium de Tickets para EL PATIO RP - FiveM Discord Server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "deploy": "node deploy-commands.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "tickets",
+    "fivem",
+    "support"
+  ],
+  "author": "EL PATIO RP",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "mongoose": "^8.0.3",
+    "moment": "^2.30.1",
+    "moment-timezone": "^0.5.44"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=16.9.0"
+  }
+}
