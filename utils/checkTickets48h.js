@@ -1,4 +1,5 @@
 const Ticket = require('../models/Ticket');
+const applySanction = require('./staffSanctions');
 const config = require('../config/config');
 
 module.exports = async (client) => {
@@ -9,7 +10,6 @@ module.exports = async (client) => {
     if (!staffChannel) return;
 
     const now = Date.now();
-    const H24 = 24 * 60 * 60 * 1000;
     const H48 = 48 * 60 * 60 * 1000;
     const H72 = 72 * 60 * 60 * 1000;
 
@@ -19,62 +19,59 @@ module.exports = async (client) => {
 
     for (const t of tickets) {
 
-        /* TICKETS ABIERTOS */
-        if (t.status === 'open') {
-            const age = now - t.createdAt.getTime();
+        // 🔴 RECLAMADO Y ABANDONADO
+        if (
+            t.status === 'claimed' &&
+            t.claimedAt &&
+            now - t.claimedAt.getTime() >= H48 &&
+            !t.lastStaffMessageAt
+        ) {
+            await staffChannel.send(
+                `🚨 **Ticket abandonado por staff**\n` +
+                `📌 Canal: <#${t.channelId}>\n` +
+                `🛡️ Staff: <@${t.claimedBy.userId}>`
+            );
 
-            if (age >= H24 && !t.alert24hSent) {
-                staffChannel.send(`🕐 Ticket sin reclamar 24h → <#${t.channelId}>`);
-                t.alert24hSent = true;
-                await t.save();
-            }
+            await applySanction(
+                client,
+                t.claimedBy.userId,
+                t.claimedBy.username,
+                'Ticket reclamado y no trabajado en 48h'
+            );
 
-            if (age >= H48 && !t.alert48hSent) {
-                staffChannel.send(`⚠️ Ticket sin reclamar 48h → <#${t.channelId}>`);
-                t.alert48hSent = true;
-                await t.save();
-            }
+            // Reabrir ticket
+            t.status = 'open';
+            t.claimedBy = null;
+            t.claimedAt = null;
+            await t.save();
 
-            if (age >= H72) {
-                staffChannel.send(`🔒 Ticket auto-cerrado 72h → <#${t.channelId}>`);
-                t.status = 'closed';
-                t.closedAt = new Date();
-                t.closedBy = { userId: 'SYSTEM', username: 'AutoClose', reason: '72h sin reclamar' };
-                await t.save();
-
-                const ch = await client.channels.fetch(t.channelId).catch(() => null);
-                if (ch) await ch.setParent(config.categories.closed).catch(() => {});
+            const ch = await client.channels.fetch(t.channelId).catch(() => null);
+            if (ch) {
+                ch.send(
+                    '🔁 Ticket liberado automáticamente por abandono del staff.\n' +
+                    'Otro staff puede atenderlo.'
+                ).catch(() => {});
             }
         }
 
-        /* TICKETS RECLAMADOS */
-        if (t.status === 'claimed') {
-            const age = now - t.claimedAt.getTime();
+        // 🔒 AUTO-CIERRE FINAL
+        if (
+            t.status === 'open' &&
+            now - t.createdAt.getTime() >= H72
+        ) {
+            t.status = 'closed';
+            t.closedAt = new Date();
+            t.closedBy = {
+                userId: 'SYSTEM',
+                username: 'AutoClose',
+                reason: 'Ticket inactivo 72h'
+            };
+            await t.save();
 
-            if (age >= H24 && !t.alert24hSent) {
-                staffChannel.send(`🕐 Ticket reclamado sin trabajo 24h → <#${t.channelId}>`);
-                t.alert24hSent = true;
-                await t.save();
-            }
-
-            if (age >= H48 && !t.alert48hSent) {
-                staffChannel.send(`🔁 Ticket reasignado 48h → <#${t.channelId}>`);
-                t.status = 'open';
-                t.claimedBy = null;
-                t.claimedAt = null;
-                t.alert48hSent = true;
-                await t.save();
-            }
-
-            if (age >= H72) {
-                staffChannel.send(`🔒 Ticket cerrado por abandono → <#${t.channelId}>`);
-                t.status = 'closed';
-                t.closedAt = new Date();
-                t.closedBy = { userId: 'SYSTEM', username: 'AutoClose', reason: 'Abandono 72h' };
-                await t.save();
-
-                const ch = await client.channels.fetch(t.channelId).catch(() => null);
-                if (ch) await ch.setParent(config.categories.closed).catch(() => {});
+            const ch = await client.channels.fetch(t.channelId).catch(() => null);
+            if (ch) {
+                ch.send('🔒 Ticket cerrado automáticamente por inactividad.');
+                ch.setParent(config.categories.closed).catch(() => {});
             }
         }
     }
