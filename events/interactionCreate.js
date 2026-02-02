@@ -266,9 +266,9 @@ async function handleTicketCreate(interaction, client) {
 }
 
 // ============================================================
-// CLAIM
+// CLAIM - ✅ CORREGIDO PARA MOSTRAR LOS BOTONES
 // ============================================================
-async function handleTicketClaim(interaction) {
+async function handleTicketClaim(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
 
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
@@ -278,6 +278,54 @@ async function handleTicketClaim(interaction) {
 
     await ticket.claim(interaction.user.id, interaction.user.tag);
 
+    const typeInfo = config.ticketTypes[ticket.type];
+
+    // 🆕 Actualizar el mensaje original con los nuevos botones
+    const messages = await interaction.channel.messages.fetch({ limit: 10 });
+    const originalMessage = messages.find(m => 
+        m.author.id === client.user.id && 
+        m.embeds.length > 0 &&
+        m.embeds[0].fields?.some(f => f.name === '📋 ID' && f.value === ticket.ticketId)
+    );
+
+    if (originalMessage) {
+        await originalMessage.edit({
+            embeds: [{
+                title: `${typeInfo.emoji} ${typeInfo.label}`,
+                description: typeInfo.requiresProof
+                    ? config.messages.ticketCreatedProof
+                    : config.messages.ticketCreated,
+                fields: [
+                    { name: '📋 ID', value: ticket.ticketId, inline: true },
+                    { name: '👤 Usuario', value: `<@${ticket.userId}>`, inline: true },
+                    { name: '🟢 Estado', value: `Atendido por <@${interaction.user.id}>`, inline: true },
+                    { name: '📝 Descripción', value: ticket.detail, inline: false }
+                ],
+                footer: { text: config.branding.serverName },
+                timestamp: new Date(),
+                color: parseInt(typeInfo.color.replace('#', ''), 16)
+            }],
+            components: [{
+                type: 1,
+                components: [
+                    {
+                        type: 2,
+                        label: '👥 Solicitar Ayuda',
+                        style: 1, // Azul
+                        custom_id: 'addstaff_ticket'
+                    },
+                    {
+                        type: 2,
+                        label: '🔒 Cerrar Ticket',
+                        style: 4, // Rojo
+                        custom_id: 'close_ticket'
+                    }
+                ]
+            }]
+        });
+    }
+
+    // Mensaje de confirmación
     await interaction.channel.send({
         content: `🛎️ Ticket reclamado por <@${interaction.user.id}>`
     });
@@ -339,6 +387,23 @@ async function handleCloseWithReason(interaction, client) {
             ],
             footer: { text: config.branding.serverName },
             timestamp: new Date()
+        }],
+        components: [{
+            type: 1,
+            components: [
+                {
+                    type: 2,
+                    label: '🔓 Reabrir',
+                    style: 3, // Verde
+                    custom_id: 'reopen_ticket'
+                },
+                {
+                    type: 2,
+                    label: '🗑️ Eliminar',
+                    style: 4, // Rojo
+                    custom_id: 'delete_ticket'
+                }
+            ]
         }]
     });
 
