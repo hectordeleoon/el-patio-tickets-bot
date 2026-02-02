@@ -2,8 +2,10 @@ const { Client, GatewayIntentBits, Partials, Collection } = require('discord.js'
 const fs = require('fs');
 const path = require('path');
 require('dotenv').config();
+
 // 🔥 NUEVO SISTEMA UNIFICADO 48H / 72H
 const checkTickets = require('./utils/checkTickets');
+
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -14,7 +16,9 @@ const client = new Client({
     ],
     partials: [Partials.Channel, Partials.Message]
 });
+
 client.commands = new Collection();
+
 /* ===============================
    CARGAR COMANDOS
 ================================ */
@@ -34,6 +38,7 @@ for (const file of fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'))) 
         console.error(`❌ Error cargando comando "${file}":`, error.message);
     }
 }
+
 /* ===============================
    CARGAR EVENTOS
 ================================ */
@@ -42,6 +47,7 @@ for (const file of fs.readdirSync(eventsPath).filter(f => f.endsWith('.js'))) {
     const evt = require(path.join(eventsPath, file));
     client.on(evt.name, (...args) => evt.execute(...args, client));
 }
+
 /* ===============================
    ⏱️ REVISIÓN AUTOMÁTICA
    cada 10 minutos (recomendado)
@@ -49,6 +55,7 @@ for (const file of fs.readdirSync(eventsPath).filter(f => f.endsWith('.js'))) {
 setInterval(() => {
     checkTickets(client).catch(console.error);
 }, 10 * 60 * 1000);
+
 /* ===============================
    LOGIN
 ================================ */
