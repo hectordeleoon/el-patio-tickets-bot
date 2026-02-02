@@ -51,8 +51,8 @@ function startInactivityChecker(client) {
     // Verificar cada 15 minutos
     setInterval(async () => {
         try {
-            const warningTime = config.system.inactivityWarning;
-            const closeTime = config.system.inactivityClose;
+            const warningTime = config.system.inactivityWarning || 42; // 42 horas por defecto
+            const closeTime = config.system.inactivityClose || 44; // 44 horas por defecto
             
             // Tickets para advertencia (42 horas sin actividad)
             const ticketsToWarn = await Ticket.getInactiveTickets(warningTime);
@@ -62,9 +62,9 @@ function startInactivityChecker(client) {
                     const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
                     if (channel) {
                         await channel.send({
-                            content: config.messages.inactivityWarning,
+                            content: config.messages?.inactivityWarning || '@here',
                             embeds: [{
-                                color: parseInt(config.branding.colors.warning.replace('#', ''), 16),
+                                color: parseInt((config.branding?.colors?.warning || '#FFA500').replace('#', ''), 16),
                                 description: '⏰ Este ticket se cerrará en **2 horas** si no hay actividad.',
                                 footer: { text: 'Responde para mantener el ticket abierto' },
                                 timestamp: new Date()
@@ -106,7 +106,7 @@ async function closeTicketAutomatically(client, ticket, channel) {
     try {
         // Generar transcripción
         let transcriptPaths = null;
-        if (config.system.autoTranscripts) {
+        if (config.system?.autoTranscripts) {
             transcriptPaths = await transcriptGenerator.save(ticket);
         }
         
@@ -116,9 +116,9 @@ async function closeTicketAutomatically(client, ticket, channel) {
         // Mensaje de cierre
         await channel.send({
             embeds: [{
-                color: parseInt(config.branding.colors.error.replace('#', ''), 16),
+                color: parseInt((config.branding?.colors?.error || '#FF0000').replace('#', ''), 16),
                 title: '🔒 Ticket Cerrado Automáticamente',
-                description: config.messages.ticketClosed,
+                description: config.messages?.ticketClosed || 'Este ticket ha sido cerrado.',
                 fields: [
                     {
                         name: 'Razón',
@@ -131,27 +131,37 @@ async function closeTicketAutomatically(client, ticket, channel) {
                         inline: true
                     }
                 ],
-                footer: { text: `${config.branding.serverName} • Soporte Oficial` },
+                footer: { text: `${config.branding?.serverName || 'Sistema de Tickets'} • Soporte Oficial` },
                 timestamp: new Date()
             }]
         });
         
         // Mover a categoría cerrados
-        if (config.categories.closed) {
-            await channel.setParent(config.categories.closed);
+        if (config.categories?.closed) {
+            await channel.setParent(config.categories.closed).catch(err => {
+                console.error('Error moviendo canal a categoría cerrados:', err);
+            });
         }
         
         // Bloquear canal
         await channel.permissionOverwrites.edit(ticket.userId, {
             SendMessages: false
+        }).catch(err => {
+            console.error('Error bloqueando permisos:', err);
         });
         
         // Log
         await logTicketClose(client, ticket, 'Inactividad', transcriptPaths);
         
         // Actualizar stats
-        const stats = await Stats.getTodayStats();
-        await stats.incrementClosed();
+        try {
+            const stats = await Stats.getTodayStats();
+            if (stats && stats.incrementClosed) {
+                await stats.incrementClosed();
+            }
+        } catch (statsError) {
+            console.error('Error actualizando estadísticas:', statsError);
+        }
         
     } catch (error) {
         console.error('Error cerrando ticket automáticamente:', error);
@@ -162,13 +172,13 @@ async function closeTicketAutomatically(client, ticket, channel) {
  * Envía log de cierre de ticket
  */
 async function logTicketClose(client, ticket, reason, transcriptPaths) {
-    if (!config.channels.logs) return;
+    if (!config.channels?.logs) return;
     
     const logChannel = await client.channels.fetch(config.channels.logs).catch(() => null);
     if (!logChannel) return;
     
     const embed = {
-        color: parseInt(config.branding.colors.error.replace('#', ''), 16),
+        color: parseInt((config.branding?.colors?.error || '#FF0000').replace('#', ''), 16),
         title: '🔒 Ticket Cerrado',
         fields: [
             { name: 'ID', value: ticket.ticketId, inline: true },
@@ -190,6 +200,8 @@ async function logTicketClose(client, ticket, reason, transcriptPaths) {
     await logChannel.send({
         embeds: [embed],
         files: files
+    }).catch(err => {
+        console.error('Error enviando log de cierre:', err);
     });
 }
 
