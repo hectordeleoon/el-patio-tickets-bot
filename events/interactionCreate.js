@@ -1,3 +1,121 @@
+const {
+    Events,
+    PermissionFlagsBits,
+    ChannelType,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
+    ActionRowBuilder
+} = require('discord.js');
+
+const config = require('../config/config');
+const Ticket = require('../models/Ticket');
+const Stats = require('../models/Stats');
+const proofDetector = require('../utils/proofDetector');
+const transcriptGenerator = require('../utils/transcriptGenerator');
+const idiomaCommand = require('../commands/idioma');
+const logger = require('../utils/logger');
+
+module.exports = {
+    name: Events.InteractionCreate,
+    async execute(interaction, client) {
+
+        // SLASH COMMANDS
+        if (interaction.isChatInputCommand()) {
+            const command = client.commands.get(interaction.commandName);
+            if (!command) return;
+
+            try {
+                await command.execute(interaction, client);
+            } catch (error) {
+                console.error(error);
+                await interaction.reply({
+                    content: '❌ Error ejecutando comando.',
+                    ephemeral: true
+                });
+            }
+        }
+
+        // BUTTONS
+        if (interaction.isButton()) {
+            const [action, param] = interaction.customId.split('_');
+
+            try {
+                if (action === 'ticket') return handleTicketCreateModal(interaction, param);
+                if (action === 'claim') return handleTicketClaim(interaction, client);
+                if (action === 'close') return handleCloseModal(interaction);
+                if (action === 'reopen') return handleTicketReopen(interaction, client);
+                if (action === 'delete') return handleTicketDelete(interaction, client);
+                if (action === 'addstaff') return handleAddStaffModal(interaction);
+            } catch (error) {
+                console.error(error);
+                await interaction.reply({
+                    content: '❌ Error procesando acción.',
+                    ephemeral: true
+                });
+            }
+        }
+
+        // SELECT MENUS
+        if (interaction.isStringSelectMenu()) {
+            try {
+                if (interaction.customId === 'language_select_user') {
+                    await idiomaCommand.handleUserLanguageSelect(interaction);
+                }
+            } catch (error) {
+                console.error(error);
+                await interaction.reply({
+                    content: '❌ Error al cambiar el idioma.',
+                    ephemeral: true
+                });
+            }
+        }
+
+        // MODALS
+        if (interaction.isModalSubmit()) {
+            try {
+                if (interaction.customId.startsWith('ticket_create_modal_')) {
+                    return handleTicketCreate(interaction, client);
+                }
+                if (interaction.customId === 'close_reason_modal') {
+                    return handleCloseWithReason(interaction, client);
+                }
+                if (interaction.customId === 'add_staff_modal') {
+                    return handleAddStaffConfirm(interaction, client);
+                }
+            } catch (error) {
+                console.error(error);
+                await interaction.reply({
+                    content: '❌ Error procesando formulario.',
+                    ephemeral: true
+                });
+            }
+        }
+    }
+};
+
+// ============================
+// FUNCIONES DE TICKET
+// ============================
+
+async function handleCloseModal(interaction) {
+    const modal = new ModalBuilder()
+        .setCustomId('close_reason_modal')
+        .setTitle('Cerrar Ticket');
+
+    const input = new TextInputBuilder()
+        .setCustomId('close_reason')
+        .setLabel('Razón del cierre')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('¿Por qué se cierra este ticket?')
+        .setMinLength(5)
+        .setMaxLength(200)
+        .setRequired(true);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(input));
+    await interaction.showModal(modal);
+}
+
 async function handleCloseWithReason(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
 
