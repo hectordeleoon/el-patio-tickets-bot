@@ -1,361 +1,3 @@
-const {
-    Events,
-    PermissionFlagsBits,
-    ChannelType,
-    ModalBuilder,
-    TextInputBuilder,
-    TextInputStyle,
-    ActionRowBuilder
-} = require('discord.js');
-
-const config = require('../config/config');
-const Ticket = require('../models/Ticket');
-const Stats = require('../models/Stats');
-const proofDetector = require('../utils/proofDetector');
-const transcriptGenerator = require('../utils/transcriptGenerator');
-const idiomaCommand = require('../commands/idioma');
-const logger = require('../utils/logger');
-
-module.exports = {
-    name: Events.InteractionCreate,
-    async execute(interaction, client) {
-
-        // SLASH COMMANDS
-        if (interaction.isChatInputCommand()) {
-            const command = client.commands.get(interaction.commandName);
-            if (!command) return;
-
-            try {
-                await command.execute(interaction, client);
-            } catch (error) {
-                console.error(error);
-                await interaction.reply({
-                    content: '❌ Error ejecutando comando.',
-                    ephemeral: true
-                });
-            }
-        }
-
-        // BUTTONS
-        if (interaction.isButton()) {
-            const [action, param] = interaction.customId.split('_');
-
-            try {
-                if (action === 'ticket') return handleTicketCreateModal(interaction, param);
-                if (action === 'claim') return handleTicketClaim(interaction, client);
-                if (action === 'close') return handleCloseModal(interaction);
-                if (action === 'reopen') return handleTicketReopen(interaction, client);
-                if (action === 'delete') return handleTicketDelete(interaction, client);
-                if (action === 'addstaff') return handleAddStaffModal(interaction);
-            } catch (error) {
-                console.error(error);
-                await interaction.reply({
-                    content: '❌ Error procesando acción.',
-                    ephemeral: true
-                });
-            }
-        }
-
-        // SELECT MENUS
-        if (interaction.isStringSelectMenu()) {
-            try {
-                if (interaction.customId === 'language_select_user') {
-                    await idiomaCommand.handleUserLanguageSelect(interaction);
-                }
-            } catch (error) {
-                console.error(error);
-                await interaction.reply({
-                    content: '❌ Error al cambiar el idioma.',
-                    ephemeral: true
-                });
-            }
-        }
-
-        // MODALS
-        if (interaction.isModalSubmit()) {
-            try {
-                if (interaction.customId.startsWith('ticket_create_modal_')) {
-                    return handleTicketCreate(interaction, client);
-                }
-                if (interaction.customId === 'close_reason_modal') {
-                    return handleCloseWithReason(interaction, client);
-                }
-                if (interaction.customId === 'add_staff_modal') {
-                    return handleAddStaffConfirm(interaction, client);
-                }
-            } catch (error) {
-                console.error(error);
-                await interaction.reply({
-                    content: '❌ Error procesando formulario.',
-                    ephemeral: true
-                });
-            }
-        }
-    }
-};
-
-async function handleTicketCreateModal(interaction, ticketType) {
-    const typeInfo = config.ticketTypes[ticketType];
-    if (!typeInfo) {
-        return interaction.reply({
-            content: '❌ Tipo de ticket inválido.',
-            ephemeral: true
-        });
-    }
-
-    const modal = new ModalBuilder()
-        .setCustomId(`ticket_create_modal_${ticketType}`)
-        .setTitle(`${typeInfo.emoji} ${typeInfo.label}`);
-
-    const detailInput = new TextInputBuilder()
-        .setCustomId('ticket_detail')
-        .setLabel('Describe tu problema o consulta')
-        .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('Explica detalladamente tu situación...')
-        .setMinLength(10)
-        .setMaxLength(500)
-        .setRequired(true);
-
-    const row = new ActionRowBuilder().addComponents(detailInput);
-    modal.addComponents(row);
-
-    await interaction.showModal(modal);
-}
-
-async function handleTicketCreate(interaction, client) {
-    await interaction.deferReply({ ephemeral: true });
-
-    const ticketType = interaction.customId.replace('ticket_create_modal_', '');
-    const detail = interaction.fields.getTextInputValue('ticket_detail');
-
-    const userId = interaction.user.id;
-    const username = interaction.user.tag;
-
-    if (config.system.antiSpamEnabled) {
-        const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-        const recentCount = await Ticket.countDocuments({
-            userId,
-            createdAt: { $gte: cutoff }
-        });
-
-        if (recentCount >= config.system.ticketLimit24h) {
-            return interaction.editReply({
-                content: config.messages.antiSpamWarning.replace(
-                    '{count}',
-                    config.system.ticketLimit24h
-                )
-            });
-        }
-    }
-
-    const activeCount = await Ticket.countDocuments({
-        userId,
-        status: { $in: ['open', 'claimed'] }
-    });
-
-    if (activeCount >= config.system.maxTicketsPerUser) {
-        return interaction.editReply({
-            content: config.messages.maxTicketsReached.replace('{count}', activeCount)
-        });
-    }
-
-    const typeInfo = config.ticketTypes[ticketType];
-    if (!typeInfo) {
-        return interaction.editReply({ content: '❌ Tipo de ticket inválido.' });
-    }
-
-    const nextId = await Ticket.generateNextId();
-    const ticketId = `${nextId}`;
-    
-    const threadName = `🎫 ${ticketId} - ${interaction.user.username}`;
-
-    const ticketsChannel = await interaction.guild.channels.fetch(config.channels.ticketsOpen);
-    
-    if (!ticketsChannel) {
-        return interaction.editReply({ 
-            content: '❌ Error: No se encontró el canal de tickets abiertos. Contacta a un administrador.' 
-        });
-    }
-
-    const thread = await ticketsChannel.threads.create({
-        name: threadName,
-        autoArchiveDuration: 10080,
-        type: ChannelType.PrivateThread,
-        reason: `Ticket #${ticketId} creado por ${username}`
-    });
-
-    await thread.members.add(userId);
-
-    const staffRoles = typeInfo.roles;
-    for (const roleKey of staffRoles) {
-        const roleId = config.roles[roleKey];
-        if (roleId) {
-            const role = await interaction.guild.roles.fetch(roleId);
-            if (role) {
-                const members = role.members;
-                for (const [memberId, member] of members) {
-                    try {
-                        await thread.members.add(memberId);
-                    } catch (err) {
-                        console.error(`Error agregando ${member.user.tag} al hilo:`, err);
-                    }
-                }
-            }
-        }
-    }
-
-    await Ticket.create({
-        ticketId,
-        channelId: thread.id,
-        userId,
-        username,
-        type: ticketType,
-        detail: detail,
-        status: 'open',
-        lastActivity: new Date()
-    });
-
-    await thread.send({
-        content: `<@${userId}>`,
-        embeds: [{
-            title: `${typeInfo.emoji} ${typeInfo.label}`,
-            description: typeInfo.requiresProof
-                ? config.messages.ticketCreatedProof
-                : config.messages.ticketCreated,
-            fields: [
-                { name: '📋 ID', value: ticketId, inline: true },
-                { name: '👤 Usuario', value: `<@${userId}>`, inline: true },
-                { name: '📊 Estado', value: '🟡 Esperando atención', inline: true },
-                { name: '📝 Descripción', value: detail, inline: false }
-            ],
-            footer: { text: config.branding.serverName },
-            timestamp: new Date(),
-            color: parseInt(typeInfo.color.replace('#', ''), 16)
-        }],
-        components: [{
-            type: 1,
-            components: [{
-                type: 2,
-                label: '🛎️ Atender Ticket',
-                style: 3,
-                custom_id: 'claim_ticket'
-            }]
-        }]
-    });
-
-    await logger.sendTicketLog(client, {
-        action: 'created',
-        ticketId,
-        userId,
-        type: typeInfo.label,
-        detail,
-        channelId: thread.id
-    });
-
-    try {
-        const stats = await Stats.getTodayStats();
-        if (stats && stats.incrementCreated) {
-            await stats.incrementCreated();
-        }
-    } catch (error) {
-        console.error('Error actualizando estadísticas:', error);
-    }
-
-    await interaction.editReply({
-        content: `✅ Ticket #${ticketId} creado correctamente: <#${thread.id}>`
-    });
-}
-
-async function handleTicketClaim(interaction, client) {
-    await interaction.deferReply({ ephemeral: true });
-
-    const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
-    if (!ticket || ticket.status !== 'open') {
-        return interaction.editReply({ content: '❌ Ticket inválido o ya reclamado.' });
-    }
-
-    await ticket.claim(interaction.user.id, interaction.user.tag);
-
-    const typeInfo = config.ticketTypes[ticket.type];
-
-    const messages = await interaction.channel.messages.fetch({ limit: 10 });
-    const originalMessage = messages.find(m => 
-        m.author.id === client.user.id && 
-        m.embeds.length > 0 &&
-        m.embeds[0].fields?.some(f => f.name === '📋 ID' && f.value === ticket.ticketId)
-    );
-
-    if (originalMessage) {
-        await originalMessage.edit({
-            embeds: [{
-                title: `${typeInfo.emoji} ${typeInfo.label}`,
-                description: typeInfo.requiresProof
-                    ? config.messages.ticketCreatedProof
-                    : config.messages.ticketCreated,
-                fields: [
-                    { name: '📋 ID', value: ticket.ticketId, inline: true },
-                    { name: '👤 Usuario', value: `<@${ticket.userId}>`, inline: true },
-                    { name: '🟢 Estado', value: `Atendido por <@${interaction.user.id}>`, inline: true },
-                    { name: '📝 Descripción', value: ticket.detail, inline: false }
-                ],
-                footer: { text: config.branding.serverName },
-                timestamp: new Date(),
-                color: parseInt(typeInfo.color.replace('#', ''), 16)
-            }],
-            components: [{
-                type: 1,
-                components: [
-                    {
-                        type: 2,
-                        label: '👥 Solicitar Ayuda',
-                        style: 1,
-                        custom_id: 'addstaff_ticket'
-                    },
-                    {
-                        type: 2,
-                        label: '🔒 Cerrar Ticket',
-                        style: 4,
-                        custom_id: 'close_ticket'
-                    }
-                ]
-            }]
-        });
-    }
-
-    await interaction.channel.send({
-        content: `🛎️ Ticket reclamado por <@${interaction.user.id}>`
-    });
-
-    await logger.sendTicketLog(client, {
-        action: 'claimed',
-        ticketId: ticket.ticketId,
-        userId: ticket.userId,
-        claimedBy: interaction.user.id,
-        channelId: ticket.channelId
-    });
-
-    await interaction.editReply({ content: '✅ Ticket reclamado correctamente.' });
-}
-
-async function handleCloseModal(interaction) {
-    const modal = new ModalBuilder()
-        .setCustomId('close_reason_modal')
-        .setTitle('Cerrar Ticket');
-
-    const input = new TextInputBuilder()
-        .setCustomId('close_reason')
-        .setLabel('Razón del cierre')
-        .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('¿Por qué se cierra este ticket?')
-        .setMinLength(5)
-        .setMaxLength(200)
-        .setRequired(true);
-
-    modal.addComponents(new ActionRowBuilder().addComponents(input));
-    await interaction.showModal(modal);
-}
-
 async function handleCloseWithReason(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
 
@@ -367,43 +9,100 @@ async function handleCloseWithReason(interaction, client) {
     }
 
     await ticket.close(interaction.user.id, interaction.user.tag, reason);
-    
+
     if (interaction.channel.isThread()) {
-        await interaction.channel.setName(`🔒 ${ticket.ticketId} - CERRADO`).catch(console.error);
+        // Bloquea y archiva el hilo original en tickets abiertos
         await interaction.channel.setLocked(true).catch(console.error);
         await interaction.channel.setArchived(true).catch(console.error);
+
+        // Obtén el canal de tickets cerrados
+        const closedChannel = await interaction.guild.channels.fetch(config.channels.ticketsClosed);
+        if (!closedChannel) {
+            return interaction.editReply({
+                content: '❌ No se encontró el canal de tickets cerrados. Contacta a un administrador.'
+            });
+        }
+
+        // Crea un nuevo hilo en tickets cerrados
+        const closedThread = await closedChannel.threads.create({
+            name: `🔒 ${ticket.ticketId} - ${interaction.user.username}`,
+            autoArchiveDuration: 10080,
+            type: ChannelType.PrivateThread,
+            reason: `Ticket #${ticket.ticketId} cerrado por ${interaction.user.tag}`
+        });
+
+        // Agrega al usuario y al staff original al nuevo hilo
+        await closedThread.members.add(ticket.userId);
+
+        const typeInfo = config.ticketTypes[ticket.type];
+        const staffRoles = typeInfo.roles;
+        for (const roleKey of staffRoles) {
+            const roleId = config.roles[roleKey];
+            if (roleId) {
+                const role = await interaction.guild.roles.fetch(roleId);
+                if (role) {
+                    const members = role.members;
+                    for (const [memberId, member] of members) {
+                        try {
+                            await closedThread.members.add(memberId);
+                        } catch (err) {
+                            console.error(`Error agregando ${member.user.tag} al hilo cerrado:`, err);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Copiar los últimos 100 mensajes del hilo original al hilo cerrado
+        const messages = await interaction.channel.messages.fetch({ limit: 100, oldestFirst: true });
+        for (const msg of messages.values()) {
+            if (msg.content || msg.embeds.length > 0 || msg.attachments.size > 0) {
+                try {
+                    await closedThread.send({
+                        content: msg.content || undefined,
+                        embeds: msg.embeds.length > 0 ? msg.embeds : undefined,
+                        files: msg.attachments.size > 0 ? Array.from(msg.attachments.values()).map(a => a.url) : undefined,
+                        allowedMentions: { parse: [] }
+                    });
+                } catch (err) {
+                    console.error('Error copiando mensaje al hilo cerrado:', err);
+                }
+            }
+        }
+
+        // Envía mensaje final de cierre
+        await closedThread.send({
+            embeds: [{
+                color: parseInt(config.branding.colors.error.replace('#', ''), 16),
+                title: '🔒 Ticket Cerrado',
+                fields: [
+                    { name: 'Cerrado por', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: 'Razón', value: reason, inline: true }
+                ],
+                footer: { text: config.branding.serverName },
+                timestamp: new Date()
+            }],
+            components: [{
+                type: 1,
+                components: [
+                    {
+                        type: 2,
+                        label: '🔓 Reabrir',
+                        style: 3,
+                        custom_id: 'reopen_ticket'
+                    },
+                    {
+                        type: 2,
+                        label: '🗑️ Eliminar',
+                        style: 4,
+                        custom_id: 'delete_ticket'
+                    }
+                ]
+            }]
+        });
     }
 
-    await interaction.channel.send({
-        embeds: [{
-            color: parseInt(config.branding.colors.error.replace('#', ''), 16),
-            title: '🔒 Ticket Cerrado',
-            fields: [
-                { name: 'Cerrado por', value: `<@${interaction.user.id}>`, inline: true },
-                { name: 'Razón', value: reason, inline: true }
-            ],
-            footer: { text: config.branding.serverName },
-            timestamp: new Date()
-        }],
-        components: [{
-            type: 1,
-            components: [
-                {
-                    type: 2,
-                    label: '🔓 Reabrir',
-                    style: 3,
-                    custom_id: 'reopen_ticket'
-                },
-                {
-                    type: 2,
-                    label: '🗑️ Eliminar',
-                    style: 4,
-                    custom_id: 'delete_ticket'
-                }
-            ]
-        }]
-    });
-
+    // Log del cierre
     await logger.sendTicketLog(client, {
         action: 'closed',
         ticketId: ticket.ticketId,
@@ -413,144 +112,5 @@ async function handleCloseWithReason(interaction, client) {
         channelId: ticket.channelId
     });
 
-    await interaction.editReply({ content: '✅ Ticket cerrado y archivado correctamente.' });
-}
-
-async function handleTicketReopen(interaction, client) {
-    await interaction.deferReply({ ephemeral: true });
-    
-    const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
-    if (!ticket) {
-        return interaction.editReply({ content: '❌ No se encontró el ticket.' });
-    }
-
-    ticket.status = 'open';
-    ticket.lastActivity = new Date();
-    ticket.inactivityWarned = false;
-    await ticket.save();
-
-    if (interaction.channel.isThread()) {
-        await interaction.channel.setArchived(false).catch(console.error);
-        await interaction.channel.setLocked(false).catch(console.error);
-        
-        const user = await client.users.fetch(ticket.userId).catch(() => null);
-        const displayName = user ? user.username : 'Usuario';
-        await interaction.channel.setName(`🎫 ${ticket.ticketId} - ${displayName}`).catch(console.error);
-    }
-
-    await interaction.channel.send({
-        embeds: [{
-            color: parseInt(config.branding.colors.success.replace('#', ''), 16),
-            title: '🔓 Ticket Reabierto',
-            description: `Ticket reabierto por <@${interaction.user.id}>`,
-            timestamp: new Date()
-        }],
-        components: [{
-            type: 1,
-            components: [{
-                type: 2,
-                label: '🔒 Cerrar Ticket',
-                style: 4,
-                custom_id: 'close_ticket'
-            }]
-        }]
-    });
-
-    await logger.sendTicketLog(client, {
-        action: 'reopened',
-        ticketId: ticket.ticketId,
-        userId: ticket.userId,
-        reopenedBy: interaction.user.id,
-        channelId: ticket.channelId
-    });
-
-    await interaction.editReply({ content: '✅ Ticket reabierto correctamente.' });
-}
-
-async function handleTicketDelete(interaction, client) {
-    const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
-    
-    await interaction.reply({ 
-        content: '🗑️ Este hilo será eliminado en 5 segundos...', 
-        ephemeral: true 
-    });
-
-    if (ticket) {
-        await logger.sendTicketLog(client, {
-            action: 'deleted',
-            ticketId: ticket.ticketId,
-            userId: ticket.userId,
-            deletedBy: interaction.user.id
-        });
-    }
-    
-    setTimeout(() => {
-        interaction.channel.delete().catch(err => {
-            console.error('Error eliminando hilo:', err);
-        });
-    }, 5000);
-}
-
-function getStaffPermissions(ticketType) {
-    const roles = config.ticketTypes[ticketType].roles;
-    return roles.map(r => ({
-        id: config.roles[r],
-        allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages
-        ]
-    }));
-}
-
-async function handleAddStaffModal(interaction) {
-    const modal = new ModalBuilder()
-        .setCustomId('add_staff_modal')
-        .setTitle('Añadir Staff al Ticket');
-
-    const input = new TextInputBuilder()
-        .setCustomId('staff_id')
-        .setLabel('ID del miembro del staff')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('123456789012345678')
-        .setRequired(true);
-
-    modal.addComponents(new ActionRowBuilder().addComponents(input));
-    await interaction.showModal(modal);
-}
-
-async function handleAddStaffConfirm(interaction, client) {
-    await interaction.deferReply({ ephemeral: true });
-
-    const staffId = interaction.fields.getTextInputValue('staff_id');
-    const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
-    
-    try {
-        if (interaction.channel.isThread()) {
-            await interaction.channel.members.add(staffId);
-        } else {
-            await interaction.channel.permissionOverwrites.edit(staffId, {
-                ViewChannel: true,
-                SendMessages: true
-            });
-        }
-
-        await interaction.channel.send({
-            content: `✅ <@${staffId}> ha sido añadido al ticket por <@${interaction.user.id}>`
-        });
-
-        if (ticket) {
-            await logger.sendTicketLog(client, {
-                action: 'staff_added',
-                ticketId: ticket.ticketId,
-                staffId,
-                addedBy: interaction.user.id,
-                channelId: ticket.channelId
-            });
-        }
-
-        await interaction.editReply({ content: '✅ Staff añadido correctamente.' });
-    } catch (error) {
-        console.error('Error añadiendo staff:', error);
-        await interaction.editReply({ content: '❌ Error al añadir el staff. Verifica que el ID sea correcto.' });
-    }
+    await interaction.editReply({ content: '✅ Ticket cerrado y movido a tickets cerrados correctamente.' });
 }
