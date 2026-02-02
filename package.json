@@ -4,7 +4,7 @@
   "description": "Sistema Premium de Tickets para EL PATIO RP - FiveM Discord Server",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node --no-warnings index.js",
     "dev": "nodemon index.js",
     "deploy": "node deploy-commands.js",
     "test": "echo \"Error: no test specified\" && exit 1"
