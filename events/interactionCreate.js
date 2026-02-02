@@ -14,15 +14,13 @@ const Stats = require('../models/Stats');
 const proofDetector = require('../utils/proofDetector');
 const transcriptGenerator = require('../utils/transcriptGenerator');
 const idiomaCommand = require('../commands/idioma');
-const logger = require('../utils/logger'); // 🆕 IMPORTAR LOGGER
+const logger = require('../utils/logger');
 
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction, client) {
 
-        // ============================================================
         // SLASH COMMANDS
-        // ============================================================
         if (interaction.isChatInputCommand()) {
             const command = client.commands.get(interaction.commandName);
             if (!command) return;
@@ -38,9 +36,7 @@ module.exports = {
             }
         }
 
-        // ============================================================
         // BUTTONS
-        // ============================================================
         if (interaction.isButton()) {
             const [action, param] = interaction.customId.split('_');
 
@@ -60,9 +56,7 @@ module.exports = {
             }
         }
 
-        // ============================================================
-        // SELECT MENUS (IDIOMA)
-        // ============================================================
+        // SELECT MENUS
         if (interaction.isStringSelectMenu()) {
             try {
                 if (interaction.customId === 'language_select_user') {
@@ -77,9 +71,7 @@ module.exports = {
             }
         }
 
-        // ============================================================
         // MODALS
-        // ============================================================
         if (interaction.isModalSubmit()) {
             try {
                 if (interaction.customId.startsWith('ticket_create_modal_')) {
@@ -102,9 +94,6 @@ module.exports = {
     }
 };
 
-// ============================================================
-// MOSTRAR MODAL PARA CREAR TICKET
-// ============================================================
 async function handleTicketCreateModal(interaction, ticketType) {
     const typeInfo = config.ticketTypes[ticketType];
     if (!typeInfo) {
@@ -133,9 +122,6 @@ async function handleTicketCreateModal(interaction, ticketType) {
     await interaction.showModal(modal);
 }
 
-// ============================================================
-// CREAR TICKET
-// ============================================================
 async function handleTicketCreate(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
 
@@ -145,7 +131,6 @@ async function handleTicketCreate(interaction, client) {
     const userId = interaction.user.id;
     const username = interaction.user.tag;
 
-    // Anti-spam check
     if (config.system.antiSpamEnabled) {
         const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -164,7 +149,6 @@ async function handleTicketCreate(interaction, client) {
         }
     }
 
-    // Max tickets check
     const activeCount = await Ticket.countDocuments({
         userId,
         status: { $in: ['open', 'claimed'] }
@@ -181,7 +165,6 @@ async function handleTicketCreate(interaction, client) {
         return interaction.editReply({ content: '❌ Tipo de ticket inválido.' });
     }
 
-    // Generar ID de ticket
     const nextId = await Ticket.generateNextId();
     const ticketId = `${nextId}`;
     
@@ -189,7 +172,6 @@ async function handleTicketCreate(interaction, client) {
         .toLowerCase()
         .replace(/[^a-z0-9-]/g, '');
 
-    // Crear canal
     const channel = await interaction.guild.channels.create({
         name: channelName,
         type: ChannelType.GuildText,
@@ -208,7 +190,6 @@ async function handleTicketCreate(interaction, client) {
         ]
     });
 
-    // Crear ticket en BD
     await Ticket.create({
         ticketId,
         channelId: channel.id,
@@ -220,7 +201,6 @@ async function handleTicketCreate(interaction, client) {
         lastActivity: new Date()
     });
 
-    // Mensaje en el canal del ticket
     await channel.send({
         content: `<@${userId}>`,
         embeds: [{
@@ -249,7 +229,6 @@ async function handleTicketCreate(interaction, client) {
         }]
     });
 
-    // 🆕 ENVIAR LOG
     await logger.sendTicketLog(client, {
         action: 'created',
         ticketId,
@@ -259,7 +238,6 @@ async function handleTicketCreate(interaction, client) {
         channelId: channel.id
     });
 
-    // Actualizar estadísticas
     try {
         const stats = await Stats.getTodayStats();
         if (stats && stats.incrementCreated) {
@@ -274,9 +252,6 @@ async function handleTicketCreate(interaction, client) {
     });
 }
 
-// ============================================================
-// CLAIM
-// ============================================================
 async function handleTicketClaim(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
 
@@ -289,7 +264,6 @@ async function handleTicketClaim(interaction, client) {
 
     const typeInfo = config.ticketTypes[ticket.type];
 
-    // Actualizar el mensaje original con los nuevos botones
     const messages = await interaction.channel.messages.fetch({ limit: 10 });
     const originalMessage = messages.find(m => 
         m.author.id === client.user.id && 
@@ -338,7 +312,6 @@ async function handleTicketClaim(interaction, client) {
         content: `🛎️ Ticket reclamado por <@${interaction.user.id}>`
     });
 
-    // 🆕 ENVIAR LOG
     await logger.sendTicketLog(client, {
         action: 'claimed',
         ticketId: ticket.ticketId,
@@ -350,9 +323,6 @@ async function handleTicketClaim(interaction, client) {
     await interaction.editReply({ content: '✅ Ticket reclamado correctamente.' });
 }
 
-// ============================================================
-// CERRAR TICKET
-// ============================================================
 async function handleCloseModal(interaction) {
     const modal = new ModalBuilder()
         .setCustomId('close_reason_modal')
@@ -383,17 +353,14 @@ async function handleCloseWithReason(interaction, client) {
 
     await ticket.close(interaction.user.id, interaction.user.tag, reason);
     
-    // Mover a categoría de cerrados
     if (config.categories.closed) {
         await interaction.channel.setParent(config.categories.closed).catch(console.error);
     }
 
-    // Bloquear permisos del usuario
     await interaction.channel.permissionOverwrites.edit(ticket.userId, {
         SendMessages: false
     }).catch(console.error);
 
-    // Mensaje de cierre
     await interaction.channel.send({
         embeds: [{
             color: parseInt(config.branding.colors.error.replace('#', ''), 16),
@@ -424,7 +391,6 @@ async function handleCloseWithReason(interaction, client) {
         }]
     });
 
-    // 🆕 ENVIAR LOG
     await logger.sendTicketLog(client, {
         action: 'closed',
         ticketId: ticket.ticketId,
@@ -437,9 +403,6 @@ async function handleCloseWithReason(interaction, client) {
     await interaction.editReply({ content: '✅ Ticket cerrado correctamente.' });
 }
 
-// ============================================================
-// REABRIR TICKET
-// ============================================================
 async function handleTicketReopen(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
     
@@ -453,12 +416,10 @@ async function handleTicketReopen(interaction, client) {
     ticket.inactivityWarned = false;
     await ticket.save();
 
-    // Mover de vuelta a categoría abiertos
     if (config.categories.open) {
         await interaction.channel.setParent(config.categories.open).catch(console.error);
     }
 
-    // Restaurar permisos del usuario
     await interaction.channel.permissionOverwrites.edit(ticket.userId, {
         SendMessages: true
     }).catch(console.error);
@@ -472,7 +433,6 @@ async function handleTicketReopen(interaction, client) {
         }]
     });
 
-    // 🆕 ENVIAR LOG
     await logger.sendTicketLog(client, {
         action: 'reopened',
         ticketId: ticket.ticketId,
@@ -484,9 +444,6 @@ async function handleTicketReopen(interaction, client) {
     await interaction.editReply({ content: '✅ Ticket reabierto correctamente.' });
 }
 
-// ============================================================
-// ELIMINAR TICKET
-// ============================================================
 async function handleTicketDelete(interaction, client) {
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
     
@@ -495,7 +452,6 @@ async function handleTicketDelete(interaction, client) {
         ephemeral: true 
     });
 
-    // 🆕 ENVIAR LOG ANTES DE ELIMINAR
     if (ticket) {
         await logger.sendTicketLog(client, {
             action: 'deleted',
@@ -512,7 +468,62 @@ async function handleTicketDelete(interaction, client) {
     }, 5000);
 }
 
-// ============================================================
-// STAFF PERMISSIONS
-// ============================================================
-function getStaffPermissions(tick
+function getStaffPermissions(ticketType) {
+    const roles = config.ticketTypes[ticketType].roles;
+    return roles.map(r => ({
+        id: config.roles[r],
+        allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages
+        ]
+    }));
+}
+
+async function handleAddStaffModal(interaction) {
+    const modal = new ModalBuilder()
+        .setCustomId('add_staff_modal')
+        .setTitle('Añadir Staff al Ticket');
+
+    const input = new TextInputBuilder()
+        .setCustomId('staff_id')
+        .setLabel('ID del miembro del staff')
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder('123456789012345678')
+        .setRequired(true);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(input));
+    await interaction.showModal(modal);
+}
+
+async function handleAddStaffConfirm(interaction, client) {
+    await interaction.deferReply({ ephemeral: true });
+
+    const staffId = interaction.fields.getTextInputValue('staff_id');
+    const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
+    
+    try {
+        await interaction.channel.permissionOverwrites.edit(staffId, {
+            ViewChannel: true,
+            SendMessages: true
+        });
+
+        await interaction.channel.send({
+            content: `✅ <@${staffId}> ha sido añadido al ticket por <@${interaction.user.id}>`
+        });
+
+        if (ticket) {
+            await logger.sendTicketLog(client, {
+                action: 'staff_added',
+                ticketId: ticket.ticketId,
+                staffId,
+                addedBy: interaction.user.id,
+                channelId: ticket.channelId
+            });
+        }
+
+        await interaction.editReply({ content: '✅ Staff añadido correctamente.' });
+    } catch (error) {
+        console.error('Error añadiendo staff:', error);
+        await interaction.editReply({ content: '❌ Error al añadir el staff. Verifica que el ID sea correcto.' });
+    }
+}
