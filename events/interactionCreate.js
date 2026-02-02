@@ -168,31 +168,51 @@ async function handleTicketCreate(interaction, client) {
     const nextId = await Ticket.generateNextId();
     const ticketId = `${nextId}`;
     
-    const channelName = `ticket-${nextId}-${interaction.user.username}`
-        .toLowerCase()
-        .replace(/[^a-z0-9-]/g, '');
+    // 🔥 Nombre del hilo
+    const threadName = `🎫 ${ticketId} - ${interaction.user.username}`;
 
-    const channel = await interaction.guild.channels.create({
-        name: channelName,
-        type: ChannelType.GuildText,
-        parent: config.categories.open,
-        permissionOverwrites: [
-            { id: interaction.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-            {
-                id: userId,
-                allow: [
-                    PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.SendMessages,
-                    PermissionFlagsBits.AttachFiles
-                ]
-            },
-            ...getStaffPermissions(ticketType)
-        ]
+    // 🔥 Obtener el canal donde se crearán los hilos
+    const ticketsChannel = await interaction.guild.channels.fetch(config.channels.ticketsOpen);
+    
+    if (!ticketsChannel) {
+        return interaction.editReply({ 
+            content: '❌ Error: No se encontró el canal de tickets abiertos.' 
+        });
+    }
+
+    // 🔥 Crear HILO en lugar de canal
+    const thread = await ticketsChannel.threads.create({
+        name: threadName,
+        autoArchiveDuration: 10080, // 7 días
+        type: ChannelType.PrivateThread,
+        reason: `Ticket #${ticketId} creado por ${username}`
     });
+
+    // 🔥 Agregar permisos al usuario
+    await thread.members.add(userId);
+
+    // 🔥 Agregar staff según el tipo de ticket
+    const staffRoles = typeInfo.roles;
+    for (const roleKey of staffRoles) {
+        const roleId = config.roles[roleKey];
+        if (roleId) {
+            const role = await interaction.guild.roles.fetch(roleId);
+            if (role) {
+                const members = role.members;
+                for (const [memberId, member] of members) {
+                    try {
+                        await thread.members.add(memberId);
+                    } catch (err) {
+                        console.error(`Error agregando ${member.user.tag} al hilo:`, err);
+                    }
+                }
+            }
+        }
+    }
 
     await Ticket.create({
         ticketId,
-        channelId: channel.id,
+        channelId: thread.id,
         userId,
         username,
         type: ticketType,
@@ -201,7 +221,7 @@ async function handleTicketCreate(interaction, client) {
         lastActivity: new Date()
     });
 
-    await channel.send({
+    await thread.send({
         content: `<@${userId}>`,
         embeds: [{
             title: `${typeInfo.emoji} ${typeInfo.label}`,
@@ -235,7 +255,7 @@ async function handleTicketCreate(interaction, client) {
         userId,
         type: typeInfo.label,
         detail,
-        channelId: channel.id
+        channelId: thread.id
     });
 
     try {
@@ -248,7 +268,7 @@ async function handleTicketCreate(interaction, client) {
     }
 
     await interaction.editReply({
-        content: `✅ Ticket #${ticketId} creado correctamente: <#${channel.id}>`
+        content: `✅ Ticket #${ticketId} creado correctamente: <#${thread.id}>`
     });
 }
 
@@ -353,13 +373,12 @@ async function handleCloseWithReason(interaction, client) {
 
     await ticket.close(interaction.user.id, interaction.user.tag, reason);
     
-    if (config.categories.closed) {
-        await interaction.channel.setParent(config.categories.closed).catch(console.error);
+    // 🔥 Si es un hilo, archivarlo
+    if (interaction.channel.isThread()) {
+        await interaction.channel.setName(`🔒 ${ticket.ticketId} - CERRADO`).catch(console.error);
+        await interaction.channel.setLocked(true).catch(console.error);
+        await interaction.channel.setArchived(true).catch(console.error);
     }
-
-    await interaction.channel.permissionOverwrites.edit(ticket.userId, {
-        SendMessages: false
-    }).catch(console.error);
 
     await interaction.channel.send({
         embeds: [{
@@ -400,7 +419,7 @@ async function handleCloseWithReason(interaction, client) {
         channelId: ticket.channelId
     });
 
-    await interaction.editReply({ content: '✅ Ticket cerrado correctamente.' });
+    await interaction.editReply({ content: '✅ Ticket cerrado y archivado correctamente.' });
 }
 
 async function handleTicketReopen(interaction, client) {
@@ -416,13 +435,15 @@ async function handleTicketReopen(interaction, client) {
     ticket.inactivityWarned = false;
     await ticket.save();
 
-    if (config.categories.open) {
-        await interaction.channel.setParent(config.categories.open).catch(console.error);
+    // 🔥 Si es un hilo, desarchivar
+    if (interaction.channel.isThread()) {
+        await interaction.channel.setArchived(false).catch(console.error);
+        await interaction.channel.setLocked(false).catch(console.error);
+        
+        const user = await client.users.fetch(ticket.userId).catch(() => null);
+        const displayName = user ? user.username : 'Usuario';
+        await interaction.channel.setName(`🎫 ${ticket.ticketId} - ${displayName}`).catch(console.error);
     }
-
-    await interaction.channel.permissionOverwrites.edit(ticket.userId, {
-        SendMessages: true
-    }).catch(console.error);
 
     await interaction.channel.send({
         embeds: [{
@@ -430,6 +451,15 @@ async function handleTicketReopen(interaction, client) {
             title: '🔓 Ticket Reabierto',
             description: `Ticket reabierto por <@${interaction.user.id}>`,
             timestamp: new Date()
+        }],
+        components: [{
+            type: 1,
+            components: [{
+                type: 2,
+                label: '🔒 Cerrar Ticket',
+                style: 4,
+                custom_id: 'close_ticket'
+            }]
         }]
     });
 
@@ -448,7 +478,7 @@ async function handleTicketDelete(interaction, client) {
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
     
     await interaction.reply({ 
-        content: '🗑️ Este canal será eliminado en 5 segundos...', 
+        content: '🗑️ Este hilo será eliminado en 5 segundos...', 
         ephemeral: true 
     });
 
@@ -463,7 +493,7 @@ async function handleTicketDelete(interaction, client) {
     
     setTimeout(() => {
         interaction.channel.delete().catch(err => {
-            console.error('Error eliminando canal:', err);
+            console.error('Error eliminando hilo:', err);
         });
     }, 5000);
 }
@@ -502,10 +532,15 @@ async function handleAddStaffConfirm(interaction, client) {
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
     
     try {
-        await interaction.channel.permissionOverwrites.edit(staffId, {
-            ViewChannel: true,
-            SendMessages: true
-        });
+        // 🔥 Si es un hilo, agregar miembro
+        if (interaction.channel.isThread()) {
+            await interaction.channel.members.add(staffId);
+        } else {
+            await interaction.channel.permissionOverwrites.edit(staffId, {
+                ViewChannel: true,
+                SendMessages: true
+            });
+        }
 
         await interaction.channel.send({
             content: `✅ <@${staffId}> ha sido añadido al ticket por <@${interaction.user.id}>`
