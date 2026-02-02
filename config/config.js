@@ -17,11 +17,15 @@ module.exports = {
         panel: process.env.PANEL_CHANNEL_ID,
         logs: process.env.LOG_CHANNEL_ID,
         staffChat: process.env.STAFF_CHAT_CHANNEL_ID || null,
-        test: process.env.TEST_CHANNEL_ID || null
+        test: process.env.TEST_CHANNEL_ID || null,
+        
+        // 🔥 NUEVO: Canales para hilos
+        ticketsOpen: process.env.TICKETS_OPEN_CHANNEL_ID,
+        ticketsClosed: process.env.TICKETS_CLOSED_CHANNEL_ID
     },
 
     /* =======================
-       CATEGORÍAS
+       CATEGORÍAS (YA NO SE USAN PARA HILOS)
     ======================= */
     categories: {
         open: process.env.OPEN_CATEGORY_ID,
