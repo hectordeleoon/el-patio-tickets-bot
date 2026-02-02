@@ -222,4 +222,5 @@ ticketSchema.index({ status: 1, lastActivity: 1 });
 ticketSchema.index({ status: 1, lastStaffMessageAt: 1 });
 ticketSchema.index({ channelId: 1 });
 
-module.exports = mongoose.model('Ticket', ticketSchema);
+// Evitar error "Cannot overwrite model" cuando se importa múltiples veces
+module.exports = mongoose.models.Ticket || mongoose.model('Ticket', ticketSchema);
