@@ -13,7 +13,8 @@ const Ticket = require('../models/Ticket');
 const Stats = require('../models/Stats');
 const proofDetector = require('../utils/proofDetector');
 const transcriptGenerator = require('../utils/transcriptGenerator');
-const idiomaCommand = require('../commands/idioma'); // 👈 IMPORTANTE
+const idiomaCommand = require('../commands/idioma');
+const logger = require('../utils/logger'); // 🆕 IMPORTAR LOGGER
 
 module.exports = {
     name: Events.InteractionCreate,
@@ -47,8 +48,8 @@ module.exports = {
                 if (action === 'ticket') return handleTicketCreateModal(interaction, param);
                 if (action === 'claim') return handleTicketClaim(interaction, client);
                 if (action === 'close') return handleCloseModal(interaction);
-                if (action === 'reopen') return handleTicketReopen(interaction);
-                if (action === 'delete') return handleTicketDelete(interaction);
+                if (action === 'reopen') return handleTicketReopen(interaction, client);
+                if (action === 'delete') return handleTicketDelete(interaction, client);
                 if (action === 'addstaff') return handleAddStaffModal(interaction);
             } catch (error) {
                 console.error(error);
@@ -88,7 +89,7 @@ module.exports = {
                     return handleCloseWithReason(interaction, client);
                 }
                 if (interaction.customId === 'add_staff_modal') {
-                    return handleAddStaffConfirm(interaction);
+                    return handleAddStaffConfirm(interaction, client);
                 }
             } catch (error) {
                 console.error(error);
@@ -102,7 +103,7 @@ module.exports = {
 };
 
 // ============================================================
-// 🆕 MOSTRAR MODAL PARA CREAR TICKET (CON DETAIL)
+// MOSTRAR MODAL PARA CREAR TICKET
 // ============================================================
 async function handleTicketCreateModal(interaction, ticketType) {
     const typeInfo = config.ticketTypes[ticketType];
@@ -113,7 +114,6 @@ async function handleTicketCreateModal(interaction, ticketType) {
         });
     }
 
-    // Crear modal para solicitar detalles
     const modal = new ModalBuilder()
         .setCustomId(`ticket_create_modal_${ticketType}`)
         .setTitle(`${typeInfo.emoji} ${typeInfo.label}`);
@@ -134,12 +134,11 @@ async function handleTicketCreateModal(interaction, ticketType) {
 }
 
 // ============================================================
-// 🆕 CREAR TICKET (DESPUÉS DE MODAL)
+// CREAR TICKET
 // ============================================================
 async function handleTicketCreate(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
 
-    // Extraer el tipo de ticket del customId del modal
     const ticketType = interaction.customId.replace('ticket_create_modal_', '');
     const detail = interaction.fields.getTextInputValue('ticket_detail');
 
@@ -209,16 +208,16 @@ async function handleTicketCreate(interaction, client) {
         ]
     });
 
-    // 🆕 CREAR TICKET CON EL CAMPO DETAIL
+    // Crear ticket en BD
     await Ticket.create({
         ticketId,
         channelId: channel.id,
         userId,
         username,
         type: ticketType,
-        detail: detail, // ✅ CAMPO REQUERIDO
+        detail: detail,
         status: 'open',
-        lastActivity: new Date() // ✅ Para sistema de inactividad
+        lastActivity: new Date()
     });
 
     // Mensaje en el canal del ticket
@@ -233,7 +232,7 @@ async function handleTicketCreate(interaction, client) {
                 { name: '📋 ID', value: ticketId, inline: true },
                 { name: '👤 Usuario', value: `<@${userId}>`, inline: true },
                 { name: '📊 Estado', value: '🟡 Esperando atención', inline: true },
-                { name: '📝 Descripción', value: detail, inline: false } // Mostrar el detalle
+                { name: '📝 Descripción', value: detail, inline: false }
             ],
             footer: { text: config.branding.serverName },
             timestamp: new Date(),
@@ -248,6 +247,16 @@ async function handleTicketCreate(interaction, client) {
                 custom_id: 'claim_ticket'
             }]
         }]
+    });
+
+    // 🆕 ENVIAR LOG
+    await logger.sendTicketLog(client, {
+        action: 'created',
+        ticketId,
+        userId,
+        type: typeInfo.label,
+        detail,
+        channelId: channel.id
     });
 
     // Actualizar estadísticas
@@ -266,7 +275,7 @@ async function handleTicketCreate(interaction, client) {
 }
 
 // ============================================================
-// CLAIM - ✅ CORREGIDO PARA MOSTRAR LOS BOTONES
+// CLAIM
 // ============================================================
 async function handleTicketClaim(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
@@ -280,7 +289,7 @@ async function handleTicketClaim(interaction, client) {
 
     const typeInfo = config.ticketTypes[ticket.type];
 
-    // 🆕 Actualizar el mensaje original con los nuevos botones
+    // Actualizar el mensaje original con los nuevos botones
     const messages = await interaction.channel.messages.fetch({ limit: 10 });
     const originalMessage = messages.find(m => 
         m.author.id === client.user.id && 
@@ -311,13 +320,13 @@ async function handleTicketClaim(interaction, client) {
                     {
                         type: 2,
                         label: '👥 Solicitar Ayuda',
-                        style: 1, // Azul
+                        style: 1,
                         custom_id: 'addstaff_ticket'
                     },
                     {
                         type: 2,
                         label: '🔒 Cerrar Ticket',
-                        style: 4, // Rojo
+                        style: 4,
                         custom_id: 'close_ticket'
                     }
                 ]
@@ -325,16 +334,24 @@ async function handleTicketClaim(interaction, client) {
         });
     }
 
-    // Mensaje de confirmación
     await interaction.channel.send({
         content: `🛎️ Ticket reclamado por <@${interaction.user.id}>`
+    });
+
+    // 🆕 ENVIAR LOG
+    await logger.sendTicketLog(client, {
+        action: 'claimed',
+        ticketId: ticket.ticketId,
+        userId: ticket.userId,
+        claimedBy: interaction.user.id,
+        channelId: ticket.channelId
     });
 
     await interaction.editReply({ content: '✅ Ticket reclamado correctamente.' });
 }
 
 // ============================================================
-// CERRAR / REABRIR / BORRAR
+// CERRAR TICKET
 // ============================================================
 async function handleCloseModal(interaction) {
     const modal = new ModalBuilder()
@@ -394,23 +411,36 @@ async function handleCloseWithReason(interaction, client) {
                 {
                     type: 2,
                     label: '🔓 Reabrir',
-                    style: 3, // Verde
+                    style: 3,
                     custom_id: 'reopen_ticket'
                 },
                 {
                     type: 2,
                     label: '🗑️ Eliminar',
-                    style: 4, // Rojo
+                    style: 4,
                     custom_id: 'delete_ticket'
                 }
             ]
         }]
     });
 
+    // 🆕 ENVIAR LOG
+    await logger.sendTicketLog(client, {
+        action: 'closed',
+        ticketId: ticket.ticketId,
+        userId: ticket.userId,
+        closedBy: interaction.user.id,
+        reason,
+        channelId: ticket.channelId
+    });
+
     await interaction.editReply({ content: '✅ Ticket cerrado correctamente.' });
 }
 
-async function handleTicketReopen(interaction) {
+// ============================================================
+// REABRIR TICKET
+// ============================================================
+async function handleTicketReopen(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
     
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
@@ -442,14 +472,38 @@ async function handleTicketReopen(interaction) {
         }]
     });
 
+    // 🆕 ENVIAR LOG
+    await logger.sendTicketLog(client, {
+        action: 'reopened',
+        ticketId: ticket.ticketId,
+        userId: ticket.userId,
+        reopenedBy: interaction.user.id,
+        channelId: ticket.channelId
+    });
+
     await interaction.editReply({ content: '✅ Ticket reabierto correctamente.' });
 }
 
-async function handleTicketDelete(interaction) {
+// ============================================================
+// ELIMINAR TICKET
+// ============================================================
+async function handleTicketDelete(interaction, client) {
+    const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
+    
     await interaction.reply({ 
         content: '🗑️ Este canal será eliminado en 5 segundos...', 
         ephemeral: true 
     });
+
+    // 🆕 ENVIAR LOG ANTES DE ELIMINAR
+    if (ticket) {
+        await logger.sendTicketLog(client, {
+            action: 'deleted',
+            ticketId: ticket.ticketId,
+            userId: ticket.userId,
+            deletedBy: interaction.user.id
+        });
+    }
     
     setTimeout(() => {
         interaction.channel.delete().catch(err => {
@@ -461,54 +515,4 @@ async function handleTicketDelete(interaction) {
 // ============================================================
 // STAFF PERMISSIONS
 // ============================================================
-function getStaffPermissions(ticketType) {
-    const roles = config.ticketTypes[ticketType].roles;
-    return roles.map(r => ({
-        id: config.roles[r],
-        allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages
-        ]
-    }));
-}
-
-// ============================================================
-// ADD STAFF
-// ============================================================
-async function handleAddStaffModal(interaction) {
-    const modal = new ModalBuilder()
-        .setCustomId('add_staff_modal')
-        .setTitle('Añadir Staff al Ticket');
-
-    const input = new TextInputBuilder()
-        .setCustomId('staff_id')
-        .setLabel('ID del miembro del staff')
-        .setStyle(TextInputStyle.Short)
-        .setPlaceholder('123456789012345678')
-        .setRequired(true);
-
-    modal.addComponents(new ActionRowBuilder().addComponents(input));
-    await interaction.showModal(modal);
-}
-
-async function handleAddStaffConfirm(interaction) {
-    await interaction.deferReply({ ephemeral: true });
-
-    const staffId = interaction.fields.getTextInputValue('staff_id');
-    
-    try {
-        await interaction.channel.permissionOverwrites.edit(staffId, {
-            ViewChannel: true,
-            SendMessages: true
-        });
-
-        await interaction.channel.send({
-            content: `✅ <@${staffId}> ha sido añadido al ticket por <@${interaction.user.id}>`
-        });
-
-        await interaction.editReply({ content: '✅ Staff añadido correctamente.' });
-    } catch (error) {
-        console.error('Error añadiendo staff:', error);
-        await interaction.editReply({ content: '❌ Error al añadir el staff. Verifica que el ID sea correcto.' });
-    }
-}
+function getStaffPermissions(tick
