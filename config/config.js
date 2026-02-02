@@ -41,8 +41,6 @@ module.exports = {
         moderator: process.env.MODERATOR_ROLE_ID,
         admin: process.env.ADMIN_ROLE_ID,
         seniorAdmin: process.env.SENIOR_ADMIN_ROLE_ID,
-
-        // 🔥 Rol general de staff (para sanciones automáticas)
         staff: process.env.STAFF_ROLE_ID
     },
 
@@ -50,10 +48,10 @@ module.exports = {
        SANCIONES AUTOMÁTICAS STAFF
     ======================= */
     staffSanctions: {
-        warnAfter: 1,          // 1 falta → advertencia
-        timeoutAfter: 2,       // 2 faltas → timeout
-        removeRoleAfter: 3,    // 3 faltas → quitar rol staff
-        timeoutDuration: 60    // minutos (1h)
+        warnAfter: 1,
+        timeoutAfter: 2,
+        removeRoleAfter: 3,
+        timeoutDuration: 60
     },
 
     /* =======================
@@ -69,21 +67,12 @@ module.exports = {
        SISTEMA
     ======================= */
     system: {
-        /* ⏱️ ALERTAS DE INACTIVIDAD */
-        inactivityWarning: parseInt(process.env.INACTIVITY_WARNING_TIME) || 48, // horas
-        inactivityClose: parseInt(process.env.INACTIVITY_CLOSE_TIME) || 72,     // horas
-
-        /* 🎫 LÍMITES */
+        inactivityWarning: parseInt(process.env.INACTIVITY_WARNING_TIME) || 48,
+        inactivityClose: parseInt(process.env.INACTIVITY_CLOSE_TIME) || 72,
         maxTicketsPerUser: parseInt(process.env.MAX_TICKETS_PER_USER) || 3,
         ticketLimit24h: parseInt(process.env.TICKET_LIMIT_24H) || 3,
-
-        /* 🚫 ANTI-SPAM REAL */
         antiSpamEnabled: process.env.ANTI_SPAM_ENABLED === 'true',
-
-        // 🔥 NUEVO → bloqueo real por abuso
-        abuseCooldownHours: 12, // horas bloqueado sin poder crear tickets
-
-        /* OTROS */
+        abuseCooldownHours: 12,
         dmNotifications: process.env.DM_NOTIFICATIONS === 'true',
         autoTranscripts: process.env.AUTO_TRANSCRIPTS === 'true',
         transcriptFormat: process.env.TRANSCRIPT_FORMAT || 'both'
