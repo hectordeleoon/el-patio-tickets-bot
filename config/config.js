@@ -19,17 +19,18 @@ module.exports = {
         staffChat: process.env.STAFF_CHAT_CHANNEL_ID || null,
         test: process.env.TEST_CHANNEL_ID || null,
         
-        // 🔥 NUEVO: Canales para hilos
+        // ✅ CRÍTICO: Estos canales DEBEN ser canales de TEXTO normales
+        // El bot creará HILOS (threads) dentro de estos canales
         ticketsOpen: process.env.TICKETS_OPEN_CHANNEL_ID,
         ticketsClosed: process.env.TICKETS_CLOSED_CHANNEL_ID
     },
 
     /* =======================
-       CATEGORÍAS (YA NO SE USAN PARA HILOS)
+       CATEGORÍAS (OPCIONAL - YA NO SE USAN PARA CREAR TICKETS)
     ======================= */
     categories: {
-        open: process.env.OPEN_CATEGORY_ID,
-        closed: process.env.CLOSED_CATEGORY_ID
+        open: process.env.OPEN_CATEGORY_ID || null,
+        closed: process.env.CLOSED_CATEGORY_ID || null
     },
 
     /* =======================
@@ -41,7 +42,7 @@ module.exports = {
         moderator: process.env.MODERATOR_ROLE_ID,
         admin: process.env.ADMIN_ROLE_ID,
         seniorAdmin: process.env.SENIOR_ADMIN_ROLE_ID,
-        staff: process.env.STAFF_ROLE_ID
+        staff: process.env.STAFF_ROLE_ID || null
     },
 
     /* =======================
@@ -58,17 +59,15 @@ module.exports = {
        BASE DE DATOS
     ======================= */
     database: {
-        mongoUri:
-            process.env.MONGODB_URI ||
-            'mongodb://localhost:27017/elpatio_tickets'
+        mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/elpatio_tickets'
     },
 
     /* =======================
        SISTEMA
     ======================= */
     system: {
-        inactivityWarning: parseInt(process.env.INACTIVITY_WARNING_TIME) || 48,
-        inactivityClose: parseInt(process.env.INACTIVITY_CLOSE_TIME) || 72,
+        inactivityWarning: parseInt(process.env.INACTIVITY_WARNING_TIME) || 42,
+        inactivityClose: parseInt(process.env.INACTIVITY_CLOSE_TIME) || 44,
         maxTicketsPerUser: parseInt(process.env.MAX_TICKETS_PER_USER) || 3,
         ticketLimit24h: parseInt(process.env.TICKET_LIMIT_24H) || 3,
         antiSpamEnabled: process.env.ANTI_SPAM_ENABLED === 'true',
@@ -159,26 +158,19 @@ Nuestro equipo te atenderá a la brevedad.
 
 ⚠️ El abuso del sistema será sancionado.`,
 
-        ticketCreated:
-            '👋 **Saludos!**\n\nDescribe tu situación con el mayor detalle posible.',
+        ticketCreated: '👋 **Saludos!**\n\nDescribe tu situación con el mayor detalle posible.',
 
-        ticketCreatedProof:
-            '⚠️ **PRUEBAS OBLIGATORIAS**\nAdjunta imágenes, videos o enlaces.',
+        ticketCreatedProof: '⚠️ **PRUEBAS OBLIGATORIAS**\nAdjunta imágenes, videos o enlaces.',
 
-        proofsDetected:
-            '✅ **Pruebas recibidas correctamente.**',
+        proofsDetected: '✅ **Pruebas recibidas correctamente.**',
 
-        inactivityWarning:
-            '⚠️ **Aviso de Inactividad**\nEste ticket se cerrará automáticamente si no hay respuesta.',
+        inactivityWarning: '⚠️ **Aviso de Inactividad**\nEste ticket se cerrará automáticamente si no hay respuesta.',
 
-        ticketClosed:
-            '🔒 **Ticket Cerrado**\nGracias por contactar a EL PATIO RP.',
+        ticketClosed: '🔒 **Ticket Cerrado**\nGracias por contactar a EL PATIO RP.',
 
-        maxTicketsReached:
-            '⚠️ Ya tienes el máximo de tickets abiertos permitidos.',
+        maxTicketsReached: '⚠️ Ya tienes el máximo de tickets abiertos permitidos.',
 
-        antiSpamWarning:
-            '🚫 Has creado demasiados tickets.\nTu acceso al sistema ha sido bloqueado temporalmente.'
+        antiSpamWarning: '🚫 Has creado demasiados tickets.\nTu acceso al sistema ha sido bloqueado temporalmente.'
     },
 
     /* =======================
