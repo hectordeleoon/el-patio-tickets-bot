@@ -141,6 +141,10 @@ async function handleTicketCreate(interaction, client) {
     if (!ticketsChannel) return interaction.editReply({ content: '❌ No se encontró el canal de tickets abiertos.' });
 
     try {
+        console.log('🔧 Intentando crear thread...');
+        console.log('📁 Canal de tickets:', ticketsChannel.id);
+        console.log('📝 Nombre del thread:', threadName);
+        
         const thread = await ticketsChannel.threads.create({
             name: threadName,
             autoArchiveDuration: 10080,
@@ -148,7 +152,24 @@ async function handleTicketCreate(interaction, client) {
             reason: `Ticket #${ticketId} creado por ${username}`
         });
 
-        console.log(`✅ Thread creado con ID: ${thread.id}`);
+        console.log('✅ Thread creado exitosamente');
+        console.log('🆔 Thread completo:', JSON.stringify({
+            id: thread.id,
+            name: thread.name,
+            parentId: thread.parentId,
+            guildId: thread.guildId,
+            type: thread.type
+        }, null, 2));
+        
+        if (!thread || !thread.id) {
+            console.error('❌ ERROR: Thread creado pero sin ID válido');
+            console.error('Thread object:', thread);
+            return interaction.editReply({ 
+                content: '❌ Error: El thread se creó pero no tiene un ID válido. Contacta a un administrador.' 
+            });
+        }
+
+        console.log(`✅ Thread ID confirmado: ${thread.id}`);
         console.log(`📋 Ticket ID: ${ticketId}`);
 
         // CORRECCIÓN: Manejo de errores al agregar usuario
@@ -185,6 +206,8 @@ async function handleTicketCreate(interaction, client) {
             }
         }
 
+        console.log(`💾 Guardando en BD con Channel ID: ${thread.id}`);
+        
         await Ticket.create({
             ticketId,
             channelId: thread.id,
@@ -196,8 +219,10 @@ async function handleTicketCreate(interaction, client) {
             lastActivity: new Date()
         });
 
-        console.log(`💾 Ticket guardado en BD - Channel ID: ${thread.id}`);
+        console.log(`✅ Ticket guardado en BD - Channel ID: ${thread.id}`);
 
+        console.log(`📨 Enviando mensaje inicial al thread ${thread.id}...`);
+        
         await thread.send({
             content: `<@${userId}>`,
             embeds: [{
@@ -223,6 +248,19 @@ async function handleTicketCreate(interaction, client) {
                     style: 3,
                     custom_id: 'claim_ticket'
                 }]
+            }]
+        });
+
+        console.log(`✅ Mensaje enviado al thread correctamente`);
+        console.log(`📢 Enviando notificación al canal principal...`);
+        console.log(`🔗 Link del thread: <#${thread.id}>`);
+
+        // 🆕 Enviar notificación en el canal principal
+        await ticketsChannel.send({
+            content: `🎫 **Nuevo ticket creado:** <@${userId}> - ${typeInfo.label}`,
+            embeds: [{
+                description: `📋 ID: **${ticketId}**\n🧵 Hilo: ${thread}`,
+                color: parseInt(typeInfo.color.replace('#', ''), 16)
             }]
         });
 
