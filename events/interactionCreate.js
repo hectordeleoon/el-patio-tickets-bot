@@ -140,67 +140,95 @@ async function handleTicketCreate(interaction, client) {
     const ticketsChannel = await interaction.guild.channels.fetch(config.channels.ticketsOpen);
     if (!ticketsChannel) return interaction.editReply({ content: '❌ No se encontró el canal de tickets abiertos.' });
 
-    const thread = await ticketsChannel.threads.create({
-        name: threadName,
-        autoArchiveDuration: 10080,
-        type: ChannelType.PrivateThread,
-        reason: `Ticket #${ticketId} creado por ${username}`
-    });
+    try {
+        const thread = await ticketsChannel.threads.create({
+            name: threadName,
+            autoArchiveDuration: 10080,
+            type: ChannelType.PrivateThread,
+            reason: `Ticket #${ticketId} creado por ${username}`
+        });
 
-    await thread.members.add(userId);
+        // CORRECCIÓN: Manejo de errores al agregar usuario
+        try {
+            await thread.members.add(userId);
+        } catch (addUserError) {
+            if (addUserError.code === 50001) {
+                console.log(`⚠️ No se pudo agregar al usuario ${userId} al thread (permisos), pero el thread fue creado.`);
+            } else {
+                console.error('Error agregando usuario al thread:', addUserError);
+            }
+        }
 
-    for (const roleKey of typeInfo.roles) {
-        const roleId = config.roles[roleKey];
-        if (roleId) {
-            const role = await interaction.guild.roles.fetch(roleId);
-            if (role) {
-                for (const [memberId] of role.members) {
-                    try { await thread.members.add(memberId); } catch (err) { console.error(err); }
+        // CORRECCIÓN: Manejo de errores al agregar staff
+        for (const roleKey of typeInfo.roles) {
+            const roleId = config.roles[roleKey];
+            if (roleId) {
+                try {
+                    const role = await interaction.guild.roles.fetch(roleId);
+                    if (role) {
+                        for (const [memberId] of role.members) {
+                            try {
+                                await thread.members.add(memberId);
+                            } catch (addMemberError) {
+                                if (addMemberError.code !== 50001) {
+                                    console.error(`Error agregando miembro ${memberId}:`, addMemberError.message);
+                                }
+                            }
+                        }
+                    }
+                } catch (roleError) {
+                    console.error(`Error obteniendo rol ${roleKey}:`, roleError.message);
                 }
             }
         }
-    }
 
-    await Ticket.create({
-        ticketId,
-        channelId: thread.id,
-        userId,
-        username,
-        type: ticketType,
-        detail,
-        status: 'open',
-        lastActivity: new Date()
-    });
+        await Ticket.create({
+            ticketId,
+            channelId: thread.id,
+            userId,
+            username,
+            type: ticketType,
+            detail,
+            status: 'open',
+            lastActivity: new Date()
+        });
 
-    await thread.send({
-        content: `<@${userId}>`,
-        embeds: [{
-            title: `${typeInfo.emoji} ${typeInfo.label}`,
-            description: typeInfo.requiresProof
-                ? config.messages.ticketCreatedProof
-                : config.messages.ticketCreated,
-            fields: [
-                { name: '📋 ID', value: ticketId, inline: true },
-                { name: '👤 Usuario', value: `<@${userId}>`, inline: true },
-                { name: '📊 Estado', value: '🟡 Esperando atención', inline: true },
-                { name: '📝 Descripción', value: detail, inline: false }
-            ],
-            footer: { text: config.branding.serverName },
-            timestamp: new Date(),
-            color: parseInt(typeInfo.color.replace('#', ''), 16)
-        }],
-        components: [{
-            type: 1,
+        await thread.send({
+            content: `<@${userId}>`,
+            embeds: [{
+                title: `${typeInfo.emoji} ${typeInfo.label}`,
+                description: typeInfo.requiresProof
+                    ? config.messages.ticketCreatedProof
+                    : config.messages.ticketCreated,
+                fields: [
+                    { name: '📋 ID', value: ticketId, inline: true },
+                    { name: '👤 Usuario', value: `<@${userId}>`, inline: true },
+                    { name: '📊 Estado', value: '🟡 Esperando atención', inline: true },
+                    { name: '📝 Descripción', value: detail, inline: false }
+                ],
+                footer: { text: config.branding.serverName },
+                timestamp: new Date(),
+                color: parseInt(typeInfo.color.replace('#', ''), 16)
+            }],
             components: [{
-                type: 2,
-                label: '🛎️ Atender Ticket',
-                style: 3,
-                custom_id: 'claim_ticket'
+                type: 1,
+                components: [{
+                    type: 2,
+                    label: '🛎️ Atender Ticket',
+                    style: 3,
+                    custom_id: 'claim_ticket'
+                }]
             }]
-        }]
-    });
+        });
 
-    await interaction.editReply({ content: `✅ Ticket #${ticketId} creado correctamente: <#${thread.id}>` });
+        await interaction.editReply({ content: `✅ Ticket #${ticketId} creado correctamente: <#${thread.id}>` });
+
+    } catch (threadError) {
+        console.error('Error crítico creando ticket:', threadError);
+        return interaction.editReply({ 
+            content: '❌ Error al crear el ticket. Por favor, verifica que el bot tenga permisos para crear hilos privados.' 
+        });
+    }
 }
 
 async function handleTicketClaim(interaction, client) {
@@ -282,24 +310,42 @@ async function handleCloseWithReason(interaction, client) {
             reason: `Ticket #${ticket.ticketId} cerrado por ${interaction.user.tag}`
         });
 
-        // Agregar usuario y staff
-        await closedThread.members.add(ticket.userId);
+        // CORRECCIÓN: Agregar usuario con manejo de errores
+        try {
+            await closedThread.members.add(ticket.userId);
+        } catch (err) {
+            console.log('⚠️ No se pudo agregar al usuario al thread cerrado:', err.code);
+        }
+
+        // CORRECCIÓN: Agregar staff con manejo de errores
         const typeInfo = config.ticketTypes[ticket.type];
         for (const roleKey of typeInfo.roles) {
             const roleId = config.roles[roleKey];
             if (roleId) {
-                const role = await interaction.guild.roles.fetch(roleId);
-                if (role) {
-                    for (const [memberId] of role.members) {
-                        try { await closedThread.members.add(memberId); } catch { }
+                try {
+                    const role = await interaction.guild.roles.fetch(roleId);
+                    if (role) {
+                        for (const [memberId] of role.members) {
+                            try {
+                                await closedThread.members.add(memberId);
+                            } catch (err) {
+                                if (err.code !== 50001) {
+                                    console.error(`Error agregando staff ${memberId}:`, err.message);
+                                }
+                            }
+                        }
                     }
+                } catch (err) {
+                    console.error(`Error con rol ${roleKey}:`, err.message);
                 }
             }
         }
 
         // Copiar últimos 100 mensajes
-        const messages = await interaction.channel.messages.fetch({ limit: 100, oldestFirst: true });
-        for (const msg of messages.values()) {
+        const messages = await interaction.channel.messages.fetch({ limit: 100 });
+        const sortedMessages = Array.from(messages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+        
+        for (const msg of sortedMessages) {
             if (msg.content || msg.embeds.length > 0 || msg.attachments.size > 0) {
                 try {
                     await closedThread.send({
@@ -308,7 +354,9 @@ async function handleCloseWithReason(interaction, client) {
                         files: msg.attachments.size > 0 ? Array.from(msg.attachments.values()).map(a => a.url) : undefined,
                         allowedMentions: { parse: [] }
                     });
-                } catch {}
+                } catch (msgError) {
+                    console.error('Error copiando mensaje:', msgError.message);
+                }
             }
         }
 
@@ -431,15 +479,34 @@ async function handleAddStaffConfirm(interaction, client) {
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
 
     try {
-        if (interaction.channel.isThread()) await interaction.channel.members.add(staffId);
-        else await interaction.channel.permissionOverwrites.edit(staffId, { ViewChannel: true, SendMessages: true });
+        if (interaction.channel.isThread()) {
+            await interaction.channel.members.add(staffId);
+        } else {
+            await interaction.channel.permissionOverwrites.edit(staffId, { 
+                ViewChannel: true, 
+                SendMessages: true 
+            });
+        }
 
-        await interaction.channel.send({ content: `✅ <@${staffId}> ha sido añadido al ticket por <@${interaction.user.id}>` });
+        await interaction.channel.send({ 
+            content: `✅ <@${staffId}> ha sido añadido al ticket por <@${interaction.user.id}>` 
+        });
 
-        if (ticket) await logger.sendTicketLog(client, { action: 'staff_added', ticketId: ticket.ticketId, staffId, addedBy: interaction.user.id, channelId: ticket.channelId });
+        if (ticket) {
+            await logger.sendTicketLog(client, { 
+                action: 'staff_added', 
+                ticketId: ticket.ticketId, 
+                staffId, 
+                addedBy: interaction.user.id, 
+                channelId: ticket.channelId 
+            });
+        }
 
         await interaction.editReply({ content: '✅ Staff añadido correctamente.' });
-    } catch {
-        await interaction.editReply({ content: '❌ Error al añadir el staff. Verifica que el ID sea correcto.' });
+    } catch (error) {
+        console.error('Error añadiendo staff:', error);
+        await interaction.editReply({ 
+            content: '❌ Error al añadir el staff. Verifica que el ID sea correcto y que el bot tenga permisos.' 
+        });
     }
 }
