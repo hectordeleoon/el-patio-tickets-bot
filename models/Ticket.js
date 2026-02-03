@@ -223,6 +223,5 @@ ticketSchema.index({ status: 1, lastStaffMessageAt: 1 });
 ticketSchema.index({ channelId: 1 });
 ticketSchema.index({ ticketId: 1 });
 
-// ✅ EXPORTAR EL MODELO
-const Ticket = mongoose.model('Ticket', ticketSchema);
-module.exports = Ticket;
+// ✅ EXPORTAR EL MODELO CON PROTECCIÓN CONTRA SOBRESCRITURA
+module.exports = mongoose.models.Ticket || mongoose.model('Ticket', ticketSchema);
