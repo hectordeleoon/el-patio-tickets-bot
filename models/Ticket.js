@@ -26,10 +26,10 @@ const ticketSchema = new mongoose.Schema({
         username: String
     },
     claimedAt: Date,
-    lastActivity: { type: Date, default: Date.now }, // 🆕 Para sistema de inactividad
+    lastActivity: { type: Date, default: Date.now },
     lastStaffMessageAt: Date,
     alert48hSent: { type: Boolean, default: false },
-    inactivityWarned: { type: Boolean, default: false }, // 🆕 Para advertencia de 42h
+    inactivityWarned: { type: Boolean, default: false },
     additionalStaff: [{
         userId: String,
         username: String,
@@ -74,7 +74,7 @@ ticketSchema.methods.addMessage = function (
         timestamp: new Date()
     });
     
-    // 🆕 Actualizar última actividad
+    // Actualizar última actividad
     this.lastActivity = new Date();
     this.inactivityWarned = false; // Resetear advertencia si hay nueva actividad
     
@@ -94,9 +94,9 @@ ticketSchema.methods.claim = function (userId, username) {
     this.claimedBy = { userId, username };
     this.claimedAt = new Date();
     this.lastStaffMessageAt = new Date();
-    this.lastActivity = new Date(); // 🆕
+    this.lastActivity = new Date();
     this.alert48hSent = false;
-    this.inactivityWarned = false; // 🆕
+    this.inactivityWarned = false;
     return this.save();
 };
 
@@ -111,7 +111,7 @@ ticketSchema.methods.close = function (userId, username, reason) {
 };
 
 /**
- * 🆕 Actualiza la última actividad del ticket
+ * Actualiza la última actividad del ticket
  */
 ticketSchema.methods.updateActivity = function () {
     this.lastActivity = new Date();
@@ -124,7 +124,7 @@ ticketSchema.methods.updateActivity = function () {
 ================================ */
 
 /**
- * 🆕 Obtiene tickets inactivos por más de X horas
+ * Obtiene tickets inactivos por más de X horas
  * @param {number} hours - Horas de inactividad
  * @returns {Promise<Array>} Array de tickets inactivos
  */
@@ -139,7 +139,7 @@ ticketSchema.statics.getInactiveTickets = async function (hours) {
 };
 
 /**
- * 🆕 Obtiene tickets que necesitan advertencia de 48h
+ * Obtiene tickets que necesitan advertencia de 48h
  * @returns {Promise<Array>}
  */
 ticketSchema.statics.getTicketsNeeding48hAlert = async function () {
@@ -154,7 +154,7 @@ ticketSchema.statics.getTicketsNeeding48hAlert = async function () {
 };
 
 /**
- * 🆕 Obtiene tickets abiertos de un usuario
+ * Obtiene tickets abiertos de un usuario
  * @param {string} userId - ID del usuario
  * @returns {Promise<Array>}
  */
@@ -166,7 +166,7 @@ ticketSchema.statics.getUserOpenTickets = async function (userId) {
 };
 
 /**
- * 🆕 Obtiene un ticket por su ID personalizado
+ * Obtiene un ticket por su ID personalizado
  * @param {string} ticketId - ID del ticket (ej: "0001")
  * @returns {Promise<Object|null>}
  */
@@ -175,7 +175,7 @@ ticketSchema.statics.getByTicketId = async function (ticketId) {
 };
 
 /**
- * 🆕 Obtiene un ticket por el ID del canal
+ * Obtiene un ticket por el ID del canal
  * @param {string} channelId - ID del canal
  * @returns {Promise<Object|null>}
  */
@@ -184,7 +184,7 @@ ticketSchema.statics.getByChannelId = async function (channelId) {
 };
 
 /**
- * 🆕 Genera el siguiente ID de ticket disponible
+ * Genera el siguiente ID de ticket disponible
  * @returns {Promise<string>}
  */
 ticketSchema.statics.generateNextId = async function () {
@@ -202,7 +202,7 @@ ticketSchema.statics.generateNextId = async function () {
 };
 
 /**
- * 🆕 Obtiene estadísticas de tickets
+ * Obtiene estadísticas de tickets
  * @returns {Promise<Object>}
  */
 ticketSchema.statics.getStats = async function () {
@@ -221,6 +221,8 @@ ticketSchema.index({ userId: 1, status: 1 });
 ticketSchema.index({ status: 1, lastActivity: 1 });
 ticketSchema.index({ status: 1, lastStaffMessageAt: 1 });
 ticketSchema.index({ channelId: 1 });
+ticketSchema.index({ ticketId: 1 });
 
-// Evitar error "Cannot overwrite model" cuando se importa múltiples veces
-module.exports = mongoose.models.Ticket || mongoose.model('Ticket', ticketSchema);
+// ✅ EXPORTAR EL MODELO
+const Ticket = mongoose.model('Ticket', ticketSchema);
+module.exports = Ticket;
