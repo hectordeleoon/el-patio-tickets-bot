@@ -144,9 +144,12 @@ async function handleTicketCreate(interaction, client) {
         const thread = await ticketsChannel.threads.create({
             name: threadName,
             autoArchiveDuration: 10080,
-            type: ChannelType.PrivateThread,
+            type: ChannelType.PublicThread,
             reason: `Ticket #${ticketId} creado por ${username}`
         });
+
+        console.log(`✅ Thread creado con ID: ${thread.id}`);
+        console.log(`📋 Ticket ID: ${ticketId}`);
 
         // CORRECCIÓN: Manejo de errores al agregar usuario
         try {
@@ -193,6 +196,8 @@ async function handleTicketCreate(interaction, client) {
             lastActivity: new Date()
         });
 
+        console.log(`💾 Ticket guardado en BD - Channel ID: ${thread.id}`);
+
         await thread.send({
             content: `<@${userId}>`,
             embeds: [{
@@ -221,7 +226,22 @@ async function handleTicketCreate(interaction, client) {
             }]
         });
 
-        await interaction.editReply({ content: `✅ Ticket #${ticketId} creado correctamente: <#${thread.id}>` });
+        console.log(`📨 Enviando respuesta con link: <#${thread.id}>`);
+        console.log(`📨 Thread ID raw: ${thread.id}`);
+        console.log(`📨 Thread Name: ${thread.name}`);
+        
+        await interaction.editReply({ 
+            content: `✅ Ticket #${ticketId} creado correctamente.\n🔗 Canal: <#${thread.id}>\n🆔 ID: \`${thread.id}\``,
+            components: [{
+                type: 1,
+                components: [{
+                    type: 2,
+                    label: '📂 Ir al Ticket',
+                    style: 5,
+                    url: `https://discord.com/channels/${interaction.guildId}/${thread.id}`
+                }]
+            }]
+        });
 
     } catch (threadError) {
         console.error('Error crítico creando ticket:', threadError);
@@ -306,7 +326,7 @@ async function handleCloseWithReason(interaction, client) {
         const closedThread = await closedChannel.threads.create({
             name: `🔒 ${ticket.ticketId} - ${interaction.user.username}`,
             autoArchiveDuration: 10080,
-            type: ChannelType.PrivateThread,
+            type: ChannelType.PublicThread,
             reason: `Ticket #${ticket.ticketId} cerrado por ${interaction.user.tag}`
         });
 
