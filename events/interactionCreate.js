@@ -30,7 +30,7 @@ module.exports = {
                 await interaction.reply({
                     content: '❌ Error ejecutando comando.',
                     ephemeral: true
-                });
+                }).catch(() => {});
             }
         }
 
@@ -50,7 +50,7 @@ module.exports = {
                 await interaction.reply({
                     content: '❌ Error procesando acción.',
                     ephemeral: true
-                });
+                }).catch(() => {});
             }
         }
 
@@ -65,7 +65,7 @@ module.exports = {
                 await interaction.reply({
                     content: '❌ Error al cambiar el idioma.',
                     ephemeral: true
-                });
+                }).catch(() => {});
             }
         }
 
@@ -86,7 +86,7 @@ module.exports = {
                 await interaction.reply({
                     content: '❌ Error procesando formulario.',
                     ephemeral: true
-                });
+                }).catch(() => {});
             }
         }
     }
@@ -133,81 +133,99 @@ async function handleTicketCreate(interaction, client) {
     const typeInfo = config.ticketTypes[ticketType];
     if (!typeInfo) return interaction.editReply({ content: '❌ Tipo de ticket inválido.' });
 
+    // ✅ FIX 1: Verificar que existe el canal de tickets abiertos
+    if (!config.channels.ticketsOpen) {
+        return interaction.editReply({ 
+            content: '❌ ERROR DE CONFIGURACIÓN: El canal de tickets abiertos no está configurado en .env\n\n' +
+                     'Por favor, añade la variable TICKETS_OPEN_CHANNEL_ID en tu archivo .env'
+        });
+    }
+
+    const ticketsChannel = await interaction.guild.channels.fetch(config.channels.ticketsOpen).catch(err => {
+        console.error('❌ Error obteniendo canal de tickets:', err);
+        return null;
+    });
+
+    if (!ticketsChannel) {
+        return interaction.editReply({ 
+            content: '❌ ERROR: No se encontró el canal de tickets abiertos.\n\n' +
+                     'Verifica que el ID en TICKETS_OPEN_CHANNEL_ID sea correcto y que el bot tenga acceso al canal.'
+        });
+    }
+
+    // ✅ FIX 2: Verificar que es un canal de texto
+    if (ticketsChannel.type !== ChannelType.GuildText) {
+        return interaction.editReply({
+            content: '❌ ERROR: El canal de tickets abiertos debe ser un canal de texto normal, no una categoría ni otro tipo de canal.'
+        });
+    }
+
     const nextId = await Ticket.generateNextId();
     const ticketId = `${nextId}`;
     const threadName = `🎫 ${ticketId} - ${interaction.user.username}`;
 
-    const ticketsChannel = await interaction.guild.channels.fetch(config.channels.ticketsOpen);
-    if (!ticketsChannel) return interaction.editReply({ content: '❌ No se encontró el canal de tickets abiertos.' });
-
     try {
-        console.log('🔧 Intentando crear thread...');
-        console.log('📁 Canal de tickets:', ticketsChannel.id);
-        console.log('📝 Nombre del thread:', threadName);
+        console.log('🔧 Creando thread...');
+        console.log('📁 Canal:', ticketsChannel.name, `(${ticketsChannel.id})`);
+        console.log('📝 Nombre thread:', threadName);
         
+        // ✅ FIX 3: Crear thread PÚBLICO (no privado)
         const thread = await ticketsChannel.threads.create({
             name: threadName,
-            autoArchiveDuration: 10080,
-            type: ChannelType.PublicThread,
+            autoArchiveDuration: 10080, // 7 días
+            type: ChannelType.PublicThread, // PÚBLICO
             reason: `Ticket #${ticketId} creado por ${username}`
         });
 
-        console.log('✅ Thread creado exitosamente');
-        console.log('🆔 Thread completo:', JSON.stringify({
-            id: thread.id,
-            name: thread.name,
-            parentId: thread.parentId,
-            guildId: thread.guildId,
-            type: thread.type
-        }, null, 2));
-        
         if (!thread || !thread.id) {
-            console.error('❌ ERROR: Thread creado pero sin ID válido');
-            console.error('Thread object:', thread);
+            console.error('❌ Thread creado pero sin ID');
             return interaction.editReply({ 
-                content: '❌ Error: El thread se creó pero no tiene un ID válido. Contacta a un administrador.' 
+                content: '❌ Error al crear el ticket. Intenta de nuevo o contacta a un administrador.' 
             });
         }
 
-        console.log(`✅ Thread ID confirmado: ${thread.id}`);
-        console.log(`📋 Ticket ID: ${ticketId}`);
+        console.log(`✅ Thread creado: ${thread.id}`);
 
-        // CORRECCIÓN: Manejo de errores al agregar usuario
+        // ✅ FIX 4: Agregar usuario al thread con mejor manejo de errores
         try {
             await thread.members.add(userId);
+            console.log(`✅ Usuario ${userId} agregado al thread`);
         } catch (addUserError) {
-            if (addUserError.code === 50001) {
-                console.log(`⚠️ No se pudo agregar al usuario ${userId} al thread (permisos), pero el thread fue creado.`);
-            } else {
-                console.error('Error agregando usuario al thread:', addUserError);
-            }
+            console.error('⚠️ Error agregando usuario al thread:', addUserError.message);
+            // Continuamos aunque falle - el usuario puede acceder igual al thread público
         }
 
-        // CORRECCIÓN: Manejo de errores al agregar staff
-        for (const roleKey of typeInfo.roles) {
-            const roleId = config.roles[roleKey];
-            if (roleId) {
-                try {
-                    const role = await interaction.guild.roles.fetch(roleId);
-                    if (role) {
-                        for (const [memberId] of role.members) {
-                            try {
-                                await thread.members.add(memberId);
-                            } catch (addMemberError) {
-                                if (addMemberError.code !== 50001) {
-                                    console.error(`Error agregando miembro ${memberId}:`, addMemberError.message);
-                                }
-                            }
-                        }
+        // ✅ FIX 5: Agregar roles de staff de forma más eficiente
+        try {
+            for (const roleKey of typeInfo.roles) {
+                const roleId = config.roles[roleKey];
+                if (!roleId) {
+                    console.log(`⚠️ Rol ${roleKey} no configurado`);
+                    continue;
+                }
+
+                const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+                if (!role) {
+                    console.log(`⚠️ No se encontró el rol ${roleKey}`);
+                    continue;
+                }
+
+                // Solo agregar los primeros 5 miembros de cada rol para no sobrecargar
+                const members = Array.from(role.members.values()).slice(0, 5);
+                for (const member of members) {
+                    try {
+                        await thread.members.add(member.id);
+                    } catch (err) {
+                        // Ignorar errores silenciosamente
                     }
-                } catch (roleError) {
-                    console.error(`Error obteniendo rol ${roleKey}:`, roleError.message);
                 }
             }
+        } catch (roleError) {
+            console.error('⚠️ Error agregando staff:', roleError.message);
+            // Continuamos aunque falle
         }
 
-        console.log(`💾 Guardando en BD con Channel ID: ${thread.id}`);
-        
+        // Guardar en BD
         await Ticket.create({
             ticketId,
             channelId: thread.id,
@@ -219,10 +237,9 @@ async function handleTicketCreate(interaction, client) {
             lastActivity: new Date()
         });
 
-        console.log(`✅ Ticket guardado en BD - Channel ID: ${thread.id}`);
+        console.log(`✅ Ticket guardado en BD`);
 
-        console.log(`📨 Enviando mensaje inicial al thread ${thread.id}...`);
-        
+        // Enviar mensaje inicial en el thread
         await thread.send({
             content: `<@${userId}>`,
             embeds: [{
@@ -251,40 +268,65 @@ async function handleTicketCreate(interaction, client) {
             }]
         });
 
-        console.log(`✅ Mensaje enviado al thread correctamente`);
-        console.log(`📢 Enviando notificación al canal principal...`);
-        console.log(`🔗 Link del thread: <#${thread.id}>`);
-
-        // 🆕 Enviar notificación en el canal principal
+        // Notificación en el canal principal
         await ticketsChannel.send({
             content: `🎫 **Nuevo ticket creado:** <@${userId}> - ${typeInfo.label}`,
             embeds: [{
-                description: `📋 ID: **${ticketId}**\n🧵 Hilo: ${thread}`,
+                description: `📋 ID: **${ticketId}**\n🧵 Hilo: <#${thread.id}>`,
                 color: parseInt(typeInfo.color.replace('#', ''), 16)
             }]
         });
 
-        console.log(`📨 Enviando respuesta con link: <#${thread.id}>`);
-        console.log(`📨 Thread ID raw: ${thread.id}`);
-        console.log(`📨 Thread Name: ${thread.name}`);
-        
+        // ✅ FIX 6: Construir URL correctamente y verificar
+        const threadUrl = `https://discord.com/channels/${interaction.guildId}/${thread.id}`;
+        console.log(`🔗 URL del thread: ${threadUrl}`);
+
+        // ✅ FIX 7: Respuesta mejorada con más opciones
         await interaction.editReply({ 
-            content: `✅ Ticket #${ticketId} creado correctamente.\n🔗 Canal: <#${thread.id}>\n🆔 ID: \`${thread.id}\``,
+            content: `✅ **Ticket #${ticketId} creado correctamente!**\n\n` +
+                     `🔗 Haz clic en el botón de abajo para ir a tu ticket\n` +
+                     `📌 También puedes hacer clic aquí: <#${thread.id}>`,
             components: [{
                 type: 1,
                 components: [{
                     type: 2,
                     label: '📂 Ir al Ticket',
-                    style: 5,
-                    url: `https://discord.com/channels/${interaction.guildId}/${thread.id}`
+                    style: 5, // Link button
+                    url: threadUrl
                 }]
             }]
         });
 
+        // Log
+        await logger.sendTicketLog(client, {
+            action: 'created',
+            ticketId,
+            userId,
+            type: ticketType,
+            detail,
+            channelId: thread.id
+        });
+
+        // Stats
+        try {
+            const stats = await Stats.getTodayStats();
+            await stats.incrementCreated(ticketType);
+        } catch (statsError) {
+            console.error('Error actualizando stats:', statsError);
+        }
+
     } catch (threadError) {
-        console.error('Error crítico creando ticket:', threadError);
+        console.error('❌ Error crítico creando ticket:', threadError);
+        console.error('Stack:', threadError.stack);
+        
         return interaction.editReply({ 
-            content: '❌ Error al crear el ticket. Por favor, verifica que el bot tenga permisos para crear hilos privados.' 
+            content: '❌ Error al crear el ticket.\n\n' +
+                     '**Posibles causas:**\n' +
+                     '• El bot no tiene permisos para crear hilos\n' +
+                     '• El canal de tickets no es un canal de texto normal\n' +
+                     '• Problemas de conexión con Discord\n\n' +
+                     'Contacta a un administrador con este error:\n' +
+                     `\`${threadError.message}\``
         });
     }
 }
@@ -292,13 +334,25 @@ async function handleTicketCreate(interaction, client) {
 async function handleTicketClaim(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
-    if (!ticket || ticket.status !== 'open') return interaction.editReply({ content: '❌ Ticket inválido o ya reclamado.' });
+    
+    if (!ticket) {
+        return interaction.editReply({ content: '❌ No se encontró información del ticket.' });
+    }
+    
+    if (ticket.status !== 'open') {
+        return interaction.editReply({ content: '❌ Este ticket ya ha sido reclamado.' });
+    }
 
     await ticket.claim(interaction.user.id, interaction.user.tag);
     const typeInfo = config.ticketTypes[ticket.type];
 
     const messages = await interaction.channel.messages.fetch({ limit: 10 });
-    const originalMessage = messages.find(m => m.author.id === client.user.id && m.embeds.length > 0 && m.embeds[0].fields?.some(f => f.name === '📋 ID' && f.value === ticket.ticketId));
+    const originalMessage = messages.find(m => 
+        m.author.id === client.user.id && 
+        m.embeds.length > 0 && 
+        m.embeds[0].fields?.some(f => f.name === '📋 ID' && f.value === ticket.ticketId)
+    );
+    
     if (originalMessage) {
         await originalMessage.edit({
             embeds: [{
@@ -325,6 +379,15 @@ async function handleTicketClaim(interaction, client) {
     }
 
     await interaction.channel.send({ content: `🛎️ Ticket reclamado por <@${interaction.user.id}>` });
+    
+    await logger.sendTicketLog(client, {
+        action: 'claimed',
+        ticketId: ticket.ticketId,
+        userId: ticket.userId,
+        claimedBy: interaction.user.id,
+        channelId: ticket.channelId
+    });
+    
     await interaction.editReply({ content: '✅ Ticket reclamado correctamente.' });
 }
 
@@ -332,13 +395,19 @@ async function handleTicketClaim(interaction, client) {
    CERRAR TICKETS Y MOVERLOS
 =========================== */
 async function handleCloseModal(interaction) {
-    const modal = new ModalBuilder().setCustomId('close_reason_modal').setTitle('Cerrar Ticket');
-    const input = new TextInputBuilder().setCustomId('close_reason').setLabel('Razón del cierre')
+    const modal = new ModalBuilder()
+        .setCustomId('close_reason_modal')
+        .setTitle('Cerrar Ticket');
+        
+    const input = new TextInputBuilder()
+        .setCustomId('close_reason')
+        .setLabel('Razón del cierre')
         .setStyle(TextInputStyle.Paragraph)
         .setPlaceholder('¿Por qué se cierra este ticket?')
         .setMinLength(5)
         .setMaxLength(200)
         .setRequired(true);
+        
     modal.addComponents(new ActionRowBuilder().addComponents(input));
     await interaction.showModal(modal);
 }
@@ -347,97 +416,82 @@ async function handleCloseWithReason(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
     const reason = interaction.fields.getTextInputValue('close_reason');
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
-    if (!ticket) return interaction.editReply({ content: '❌ No se encontró el ticket.' });
+    
+    if (!ticket) {
+        return interaction.editReply({ content: '❌ No se encontró el ticket.' });
+    }
 
     await ticket.close(interaction.user.id, interaction.user.tag, reason);
 
     if (interaction.channel.isThread()) {
-        // Bloquea y archiva el hilo original
+        // Renombrar el hilo para indicar que está cerrado
+        await interaction.channel.setName(`🔒 ${ticket.ticketId} - ${interaction.user.username}`).catch(console.error);
+        
+        // Bloquear y archivar el hilo
         await interaction.channel.setLocked(true).catch(console.error);
         await interaction.channel.setArchived(true).catch(console.error);
 
-        // Canal de tickets cerrados
-        const closedChannel = await interaction.guild.channels.fetch(config.channels.ticketsClosed);
-        if (!closedChannel) return interaction.editReply({ content: '❌ No se encontró el canal de tickets cerrados.' });
-
-        // Crea hilo cerrado
-        const closedThread = await closedChannel.threads.create({
-            name: `🔒 ${ticket.ticketId} - ${interaction.user.username}`,
-            autoArchiveDuration: 10080,
-            type: ChannelType.PublicThread,
-            reason: `Ticket #${ticket.ticketId} cerrado por ${interaction.user.tag}`
-        });
-
-        // CORRECCIÓN: Agregar usuario con manejo de errores
-        try {
-            await closedThread.members.add(ticket.userId);
-        } catch (err) {
-            console.log('⚠️ No se pudo agregar al usuario al thread cerrado:', err.code);
-        }
-
-        // CORRECCIÓN: Agregar staff con manejo de errores
-        const typeInfo = config.ticketTypes[ticket.type];
-        for (const roleKey of typeInfo.roles) {
-            const roleId = config.roles[roleKey];
-            if (roleId) {
+        // Si existe canal de tickets cerrados, crear un hilo allí también
+        if (config.channels.ticketsClosed) {
+            const closedChannel = await interaction.guild.channels.fetch(config.channels.ticketsClosed).catch(() => null);
+            
+            if (closedChannel && closedChannel.type === ChannelType.GuildText) {
                 try {
-                    const role = await interaction.guild.roles.fetch(roleId);
-                    if (role) {
-                        for (const [memberId] of role.members) {
+                    const closedThread = await closedChannel.threads.create({
+                        name: `🔒 ${ticket.ticketId} - ${interaction.user.username}`,
+                        autoArchiveDuration: 10080,
+                        type: ChannelType.PublicThread,
+                        reason: `Ticket #${ticket.ticketId} cerrado por ${interaction.user.tag}`
+                    });
+
+                    // Agregar participantes
+                    try {
+                        await closedThread.members.add(ticket.userId);
+                    } catch (err) {
+                        console.log('⚠️ No se pudo agregar usuario al hilo cerrado');
+                    }
+
+                    // Copiar mensajes importantes
+                    const messages = await interaction.channel.messages.fetch({ limit: 100 });
+                    const sortedMessages = Array.from(messages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+                    
+                    for (const msg of sortedMessages.slice(0, 50)) { // Solo los primeros 50 mensajes
+                        if (msg.content || msg.embeds.length > 0) {
                             try {
-                                await closedThread.members.add(memberId);
+                                await closedThread.send({
+                                    content: `**[${msg.author.tag}]:** ${msg.content || '(embed)'}`,
+                                    allowedMentions: { parse: [] }
+                                });
                             } catch (err) {
-                                if (err.code !== 50001) {
-                                    console.error(`Error agregando staff ${memberId}:`, err.message);
-                                }
+                                // Ignorar errores al copiar mensajes
                             }
                         }
                     }
-                } catch (err) {
-                    console.error(`Error con rol ${roleKey}:`, err.message);
-                }
-            }
-        }
 
-        // Copiar últimos 100 mensajes
-        const messages = await interaction.channel.messages.fetch({ limit: 100 });
-        const sortedMessages = Array.from(messages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-        
-        for (const msg of sortedMessages) {
-            if (msg.content || msg.embeds.length > 0 || msg.attachments.size > 0) {
-                try {
+                    // Mensaje de cierre
                     await closedThread.send({
-                        content: msg.content || undefined,
-                        embeds: msg.embeds.length > 0 ? msg.embeds : undefined,
-                        files: msg.attachments.size > 0 ? Array.from(msg.attachments.values()).map(a => a.url) : undefined,
-                        allowedMentions: { parse: [] }
+                        embeds: [{
+                            color: parseInt(config.branding.colors.error.replace('#', ''), 16),
+                            title: '🔒 Ticket Cerrado',
+                            fields: [
+                                { name: 'Cerrado por', value: `<@${interaction.user.id}>`, inline: true },
+                                { name: 'Razón', value: reason, inline: true }
+                            ],
+                            footer: { text: config.branding.serverName },
+                            timestamp: new Date()
+                        }],
+                        components: [{
+                            type: 1,
+                            components: [
+                                { type: 2, label: '🔓 Reabrir', style: 3, custom_id: 'reopen_ticket' }
+                            ]
+                        }]
                     });
-                } catch (msgError) {
-                    console.error('Error copiando mensaje:', msgError.message);
+                } catch (closedThreadError) {
+                    console.error('Error creando hilo cerrado:', closedThreadError);
                 }
             }
         }
-
-        // Mensaje final
-        await closedThread.send({
-            embeds: [{
-                color: parseInt(config.branding.colors.error.replace('#', ''), 16),
-                title: '🔒 Ticket Cerrado',
-                fields: [
-                    { name: 'Cerrado por', value: `<@${interaction.user.id}>`, inline: true },
-                    { name: 'Razón', value: reason, inline: true }
-                ],
-                footer: { text: config.branding.serverName },
-                timestamp: new Date()
-            }],
-            components: [{
-                type: 1,
-                components: [
-                    { type: 2, label: '🔓 Reabrir', style: 3, custom_id: 'reopen_ticket' },
-                    { type: 2, label: '🗑️ Eliminar', style: 4, custom_id: 'delete_ticket' }
-                ]
-            }]
-        });
     }
 
     await logger.sendTicketLog(client, {
@@ -449,7 +503,7 @@ async function handleCloseWithReason(interaction, client) {
         channelId: ticket.channelId
     });
 
-    await interaction.editReply({ content: '✅ Ticket cerrado y movido a tickets cerrados correctamente.' });
+    await interaction.editReply({ content: '✅ Ticket cerrado correctamente.' });
 }
 
 /* ===========================
@@ -458,7 +512,10 @@ async function handleCloseWithReason(interaction, client) {
 async function handleTicketReopen(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
-    if (!ticket) return interaction.editReply({ content: '❌ No se encontró el ticket.' });
+    
+    if (!ticket) {
+        return interaction.editReply({ content: '❌ No se encontró el ticket.' });
+    }
 
     ticket.status = 'open';
     ticket.lastActivity = new Date();
@@ -522,11 +579,17 @@ async function handleTicketDelete(interaction, client) {
    STAFF ADD
 =========================== */
 async function handleAddStaffModal(interaction) {
-    const modal = new ModalBuilder().setCustomId('add_staff_modal').setTitle('Añadir Staff al Ticket');
-    const input = new TextInputBuilder().setCustomId('staff_id').setLabel('ID del miembro del staff')
+    const modal = new ModalBuilder()
+        .setCustomId('add_staff_modal')
+        .setTitle('Añadir Staff al Ticket');
+        
+    const input = new TextInputBuilder()
+        .setCustomId('staff_id')
+        .setLabel('ID del miembro del staff')
         .setStyle(TextInputStyle.Short)
         .setPlaceholder('123456789012345678')
         .setRequired(true);
+        
     modal.addComponents(new ActionRowBuilder().addComponents(input));
     await interaction.showModal(modal);
 }
