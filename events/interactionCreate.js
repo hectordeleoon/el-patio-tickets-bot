@@ -133,96 +133,91 @@ async function handleTicketCreate(interaction, client) {
     const typeInfo = config.ticketTypes[ticketType];
     if (!typeInfo) return interaction.editReply({ content: '❌ Tipo de ticket inválido.' });
 
-    // ✅ FIX 1: Verificar que existe el canal de tickets abiertos
+    // ✅ Verificar configuración del canal de tickets abiertos
     if (!config.channels.ticketsOpen) {
         return interaction.editReply({ 
-            content: '❌ ERROR DE CONFIGURACIÓN: El canal de tickets abiertos no está configurado en .env\n\n' +
-                     'Por favor, añade la variable TICKETS_OPEN_CHANNEL_ID en tu archivo .env'
+            content: '❌ ERROR DE CONFIGURACIÓN: El canal de tickets abiertos no está configurado.\n\n' +
+                     'Configura TICKETS_OPEN_CHANNEL_ID en tu .env con el ID de un canal de texto.'
         });
     }
 
+    // Obtener el canal donde se crearán los hilos
     const ticketsChannel = await interaction.guild.channels.fetch(config.channels.ticketsOpen).catch(err => {
-        console.error('❌ Error obteniendo canal de tickets:', err);
+        console.error('❌ Error obteniendo canal:', err);
         return null;
     });
 
     if (!ticketsChannel) {
         return interaction.editReply({ 
-            content: '❌ ERROR: No se encontró el canal de tickets abiertos.\n\n' +
-                     'Verifica que el ID en TICKETS_OPEN_CHANNEL_ID sea correcto y que el bot tenga acceso al canal.'
+            content: '❌ ERROR: No se encontró el canal de tickets.\n\n' +
+                     'Verifica que TICKETS_OPEN_CHANNEL_ID sea correcto.'
         });
     }
 
-    // ✅ FIX 2: Verificar que es un canal de texto
+    // ✅ Verificar que es un canal de texto donde se pueden crear hilos
     if (ticketsChannel.type !== ChannelType.GuildText) {
         return interaction.editReply({
-            content: '❌ ERROR: El canal de tickets abiertos debe ser un canal de texto normal, no una categoría ni otro tipo de canal.'
+            content: '❌ ERROR: El canal de tickets debe ser un canal de texto normal.\n\n' +
+                     'Crea un canal de texto llamado "ticket-abierto-📁" en la categoría "Tickets Abiertos" y usa su ID.'
         });
     }
 
     const nextId = await Ticket.generateNextId();
     const ticketId = `${nextId}`;
-    const threadName = `🎫 ${ticketId} - ${interaction.user.username}`;
+    const threadName = `📁 ${ticketId} - ${interaction.user.username}`;
 
     try {
-        console.log('🔧 Creando thread...');
-        console.log('📁 Canal:', ticketsChannel.name, `(${ticketsChannel.id})`);
-        console.log('📝 Nombre thread:', threadName);
+        console.log('🔧 Creando hilo de ticket...');
+        console.log('📁 Canal base:', ticketsChannel.name, `(${ticketsChannel.id})`);
+        console.log('📝 Nombre hilo:', threadName);
         
-        // ✅ FIX 3: Crear thread PÚBLICO (no privado)
+        // ✅ CREAR HILO PÚBLICO en el canal
         const thread = await ticketsChannel.threads.create({
             name: threadName,
             autoArchiveDuration: 10080, // 7 días
-            type: ChannelType.PublicThread, // PÚBLICO
+            type: ChannelType.PublicThread, // Hilo público
             reason: `Ticket #${ticketId} creado por ${username}`
         });
 
         if (!thread || !thread.id) {
-            console.error('❌ Thread creado pero sin ID');
+            console.error('❌ Hilo creado pero sin ID');
             return interaction.editReply({ 
-                content: '❌ Error al crear el ticket. Intenta de nuevo o contacta a un administrador.' 
+                content: '❌ Error al crear el ticket. Intenta de nuevo.' 
             });
         }
 
-        console.log(`✅ Thread creado: ${thread.id}`);
+        console.log(`✅ Hilo creado: ${thread.id}`);
 
-        // ✅ FIX 4: Agregar usuario al thread con mejor manejo de errores
+        // ✅ Agregar el usuario al hilo
         try {
             await thread.members.add(userId);
-            console.log(`✅ Usuario ${userId} agregado al thread`);
-        } catch (addUserError) {
-            console.error('⚠️ Error agregando usuario al thread:', addUserError.message);
-            // Continuamos aunque falle - el usuario puede acceder igual al thread público
+            console.log(`✅ Usuario ${userId} agregado al hilo`);
+        } catch (addError) {
+            console.error('⚠️ Error agregando usuario:', addError.message);
         }
 
-        // ✅ FIX 5: Agregar roles de staff de forma más eficiente
+        // ✅ Agregar roles de staff al hilo
         try {
             for (const roleKey of typeInfo.roles) {
                 const roleId = config.roles[roleKey];
-                if (!roleId) {
-                    console.log(`⚠️ Rol ${roleKey} no configurado`);
-                    continue;
-                }
+                if (!roleId) continue;
 
                 const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
-                if (!role) {
-                    console.log(`⚠️ No se encontró el rol ${roleKey}`);
-                    continue;
-                }
+                if (!role) continue;
 
-                // Solo agregar los primeros 5 miembros de cada rol para no sobrecargar
-                const members = Array.from(role.members.values()).slice(0, 5);
+                // Agregar primeros 10 miembros con el rol
+                const members = Array.from(role.members.values()).slice(0, 10);
                 for (const member of members) {
                     try {
                         await thread.members.add(member.id);
                     } catch (err) {
-                        // Ignorar errores silenciosamente
+                        // Ignorar errores al agregar miembros
                     }
                 }
+                console.log(`✅ Rol ${role.name} agregado al hilo`);
             }
         } catch (roleError) {
             console.error('⚠️ Error agregando staff:', roleError.message);
-            // Continuamos aunque falle
         }
 
         // Guardar en BD
@@ -239,7 +234,7 @@ async function handleTicketCreate(interaction, client) {
 
         console.log(`✅ Ticket guardado en BD`);
 
-        // Enviar mensaje inicial en el thread
+        // ✅ Mensaje inicial en el hilo
         await thread.send({
             content: `<@${userId}>`,
             embeds: [{
@@ -268,30 +263,26 @@ async function handleTicketCreate(interaction, client) {
             }]
         });
 
-        // Notificación en el canal principal
+        // ✅ Notificación en el canal principal (opcional)
         await ticketsChannel.send({
-            content: `🎫 **Nuevo ticket creado:** <@${userId}> - ${typeInfo.label}`,
+            content: `🎫 **Nuevo ticket:** <@${userId}> - ${typeInfo.label}`,
             embeds: [{
-                description: `📋 ID: **${ticketId}**\n🧵 Hilo: <#${thread.id}>`,
+                description: `📋 **ID:** ${ticketId}\n🧵 **Hilo:** <#${thread.id}>`,
                 color: parseInt(typeInfo.color.replace('#', ''), 16)
             }]
         });
 
-        // ✅ FIX 6: Construir URL correctamente y verificar
+        // ✅ Respuesta al usuario
         const threadUrl = `https://discord.com/channels/${interaction.guildId}/${thread.id}`;
-        console.log(`🔗 URL del thread: ${threadUrl}`);
-
-        // ✅ FIX 7: Respuesta mejorada con más opciones
         await interaction.editReply({ 
-            content: `✅ **Ticket #${ticketId} creado correctamente!**\n\n` +
-                     `🔗 Haz clic en el botón de abajo para ir a tu ticket\n` +
-                     `📌 También puedes hacer clic aquí: <#${thread.id}>`,
+            content: `✅ **Ticket #${ticketId} creado!**\n\n` +
+                     `📂 Ve a tu ticket: <#${thread.id}>`,
             components: [{
                 type: 1,
                 components: [{
                     type: 2,
                     label: '📂 Ir al Ticket',
-                    style: 5, // Link button
+                    style: 5,
                     url: threadUrl
                 }]
             }]
@@ -315,18 +306,16 @@ async function handleTicketCreate(interaction, client) {
             console.error('Error actualizando stats:', statsError);
         }
 
-    } catch (threadError) {
-        console.error('❌ Error crítico creando ticket:', threadError);
-        console.error('Stack:', threadError.stack);
+    } catch (error) {
+        console.error('❌ Error creando ticket:', error);
+        console.error('Stack:', error.stack);
         
         return interaction.editReply({ 
             content: '❌ Error al crear el ticket.\n\n' +
                      '**Posibles causas:**\n' +
                      '• El bot no tiene permisos para crear hilos\n' +
-                     '• El canal de tickets no es un canal de texto normal\n' +
-                     '• Problemas de conexión con Discord\n\n' +
-                     'Contacta a un administrador con este error:\n' +
-                     `\`${threadError.message}\``
+                     '• El canal no permite hilos\n' +
+                     `\n**Error:** \`${error.message}\``
         });
     }
 }
@@ -392,7 +381,7 @@ async function handleTicketClaim(interaction, client) {
 }
 
 /* ===========================
-   CERRAR TICKETS Y MOVERLOS
+   CERRAR TICKETS
 =========================== */
 async function handleCloseModal(interaction) {
     const modal = new ModalBuilder()
@@ -423,74 +412,38 @@ async function handleCloseWithReason(interaction, client) {
 
     await ticket.close(interaction.user.id, interaction.user.tag, reason);
 
+    // ✅ Si es un hilo, archivarlo y bloquearlo
     if (interaction.channel.isThread()) {
-        // Renombrar el hilo para indicar que está cerrado
-        await interaction.channel.setName(`🔒 ${ticket.ticketId} - ${interaction.user.username}`).catch(console.error);
-        
-        // Bloquear y archivar el hilo
-        await interaction.channel.setLocked(true).catch(console.error);
-        await interaction.channel.setArchived(true).catch(console.error);
-
-        // Si existe canal de tickets cerrados, crear un hilo allí también
-        if (config.channels.ticketsClosed) {
-            const closedChannel = await interaction.guild.channels.fetch(config.channels.ticketsClosed).catch(() => null);
+        try {
+            // Renombrar el hilo
+            await interaction.channel.setName(`🔒 ${ticket.ticketId} - cerrado`);
             
-            if (closedChannel && closedChannel.type === ChannelType.GuildText) {
-                try {
-                    const closedThread = await closedChannel.threads.create({
-                        name: `🔒 ${ticket.ticketId} - ${interaction.user.username}`,
-                        autoArchiveDuration: 10080,
-                        type: ChannelType.PublicThread,
-                        reason: `Ticket #${ticket.ticketId} cerrado por ${interaction.user.tag}`
-                    });
-
-                    // Agregar participantes
-                    try {
-                        await closedThread.members.add(ticket.userId);
-                    } catch (err) {
-                        console.log('⚠️ No se pudo agregar usuario al hilo cerrado');
-                    }
-
-                    // Copiar mensajes importantes
-                    const messages = await interaction.channel.messages.fetch({ limit: 100 });
-                    const sortedMessages = Array.from(messages.values()).sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-                    
-                    for (const msg of sortedMessages.slice(0, 50)) { // Solo los primeros 50 mensajes
-                        if (msg.content || msg.embeds.length > 0) {
-                            try {
-                                await closedThread.send({
-                                    content: `**[${msg.author.tag}]:** ${msg.content || '(embed)'}`,
-                                    allowedMentions: { parse: [] }
-                                });
-                            } catch (err) {
-                                // Ignorar errores al copiar mensajes
-                            }
-                        }
-                    }
-
-                    // Mensaje de cierre
-                    await closedThread.send({
-                        embeds: [{
-                            color: parseInt(config.branding.colors.error.replace('#', ''), 16),
-                            title: '🔒 Ticket Cerrado',
-                            fields: [
-                                { name: 'Cerrado por', value: `<@${interaction.user.id}>`, inline: true },
-                                { name: 'Razón', value: reason, inline: true }
-                            ],
-                            footer: { text: config.branding.serverName },
-                            timestamp: new Date()
-                        }],
-                        components: [{
-                            type: 1,
-                            components: [
-                                { type: 2, label: '🔓 Reabrir', style: 3, custom_id: 'reopen_ticket' }
-                            ]
-                        }]
-                    });
-                } catch (closedThreadError) {
-                    console.error('Error creando hilo cerrado:', closedThreadError);
-                }
-            }
+            // Enviar mensaje de cierre
+            await interaction.channel.send({
+                embeds: [{
+                    color: 0xFF0000,
+                    title: '🔒 Ticket Cerrado',
+                    fields: [
+                        { name: 'Cerrado por', value: `<@${interaction.user.id}>`, inline: true },
+                        { name: 'Razón', value: reason, inline: true }
+                    ],
+                    footer: { text: config.branding.serverName },
+                    timestamp: new Date()
+                }],
+                components: [{
+                    type: 1,
+                    components: [
+                        { type: 2, label: '🔓 Reabrir', style: 3, custom_id: 'reopen_ticket' },
+                        { type: 2, label: '🗑️ Eliminar', style: 4, custom_id: 'delete_ticket' }
+                    ]
+                }]
+            });
+            
+            // Bloquear y archivar
+            await interaction.channel.setLocked(true);
+            await interaction.channel.setArchived(true);
+        } catch (err) {
+            console.error('Error cerrando hilo:', err);
         }
     }
 
@@ -522,24 +475,30 @@ async function handleTicketReopen(interaction, client) {
     ticket.inactivityWarned = false;
     await ticket.save();
 
+    // ✅ Si es un hilo, desarchivarlo
     if (interaction.channel.isThread()) {
-        await interaction.channel.setArchived(false).catch(console.error);
-        await interaction.channel.setLocked(false).catch(console.error);
-        const user = await client.users.fetch(ticket.userId).catch(() => null);
-        const displayName = user ? user.username : 'Usuario';
-        await interaction.channel.setName(`🎫 ${ticket.ticketId} - ${displayName}`).catch(console.error);
+        try {
+            await interaction.channel.setArchived(false);
+            await interaction.channel.setLocked(false);
+            await interaction.channel.setName(`📁 ${ticket.ticketId} - reabierto`);
+        } catch (err) {
+            console.error('Error reabriendo hilo:', err);
+        }
     }
 
     await interaction.channel.send({
         embeds: [{
-            color: parseInt(config.branding.colors.success.replace('#', ''), 16),
+            color: 0x00FF00,
             title: '🔓 Ticket Reabierto',
             description: `Ticket reabierto por <@${interaction.user.id}>`,
             timestamp: new Date()
         }],
         components: [{
             type: 1,
-            components: [{ type: 2, label: '🔒 Cerrar Ticket', style: 4, custom_id: 'close_ticket' }]
+            components: [
+                { type: 2, label: '🛎️ Atender', style: 3, custom_id: 'claim_ticket' },
+                { type: 2, label: '🔒 Cerrar', style: 4, custom_id: 'close_ticket' }
+            ]
         }]
     });
 
@@ -568,6 +527,9 @@ async function handleTicketDelete(interaction, client) {
             userId: ticket.userId,
             deletedBy: interaction.user.id
         });
+        
+        // Eliminar de la base de datos
+        await Ticket.deleteOne({ channelId: interaction.channel.id });
     }
 
     setTimeout(() => {
@@ -576,7 +538,7 @@ async function handleTicketDelete(interaction, client) {
 }
 
 /* ===========================
-   STAFF ADD
+   AÑADIR STAFF
 =========================== */
 async function handleAddStaffModal(interaction) {
     const modal = new ModalBuilder()
@@ -600,9 +562,11 @@ async function handleAddStaffConfirm(interaction, client) {
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
 
     try {
+        // ✅ Si es un hilo, agregar miembro
         if (interaction.channel.isThread()) {
             await interaction.channel.members.add(staffId);
         } else {
+            // Si es canal normal, dar permisos
             await interaction.channel.permissionOverwrites.edit(staffId, { 
                 ViewChannel: true, 
                 SendMessages: true 
