@@ -19,14 +19,14 @@ module.exports = {
         staffChat: process.env.STAFF_CHAT_CHANNEL_ID || null,
         test: process.env.TEST_CHANNEL_ID || null,
         
-        // ✅ CRÍTICO: Estos canales DEBEN ser canales de TEXTO normales
-        // El bot creará HILOS (threads) dentro de estos canales
-        ticketsOpen: process.env.TICKETS_OPEN_CHANNEL_ID,
-        ticketsClosed: process.env.TICKETS_CLOSED_CHANNEL_ID
+        // ✅ PARA CANALES INDIVIDUALES: Usar IDs de CATEGORÍAS
+        // Los tickets se crearán como canales dentro de estas categorías
+        ticketsOpen: process.env.TICKETS_OPEN_CHANNEL_ID || process.env.OPEN_CATEGORY_ID,
+        ticketsClosed: process.env.TICKETS_CLOSED_CHANNEL_ID || process.env.CLOSED_CATEGORY_ID
     },
 
     /* =======================
-       CATEGORÍAS (OPCIONAL - YA NO SE USAN PARA CREAR TICKETS)
+       CATEGORÍAS (Para canales individuales de tickets)
     ======================= */
     categories: {
         open: process.env.OPEN_CATEGORY_ID || null,
