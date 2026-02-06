@@ -133,97 +133,113 @@ async function handleTicketCreate(interaction, client) {
     const typeInfo = config.ticketTypes[ticketType];
     if (!typeInfo) return interaction.editReply({ content: '❌ Tipo de ticket inválido.' });
 
-    // ✅ Verificar configuración del canal de tickets abiertos
+    // ✅ Verificar configuración de la CATEGORÍA de tickets abiertos
     if (!config.channels.ticketsOpen) {
         return interaction.editReply({ 
-            content: '❌ ERROR DE CONFIGURACIÓN: El canal de tickets abiertos no está configurado.\n\n' +
-                     'Configura TICKETS_OPEN_CHANNEL_ID en tu .env con el ID de un canal de texto.'
+            content: '❌ ERROR DE CONFIGURACIÓN: La categoría de tickets abiertos no está configurada.\n\n' +
+                     'Configura TICKETS_OPEN_CHANNEL_ID en tu .env con el ID de una CATEGORÍA.'
         });
     }
 
-    // Obtener el canal donde se crearán los hilos
-    const ticketsChannel = await interaction.guild.channels.fetch(config.channels.ticketsOpen).catch(err => {
-        console.error('❌ Error obteniendo canal:', err);
+    // ✅ Obtener la CATEGORÍA donde se crearán los canales
+    const ticketsCategory = await interaction.guild.channels.fetch(config.channels.ticketsOpen).catch(err => {
+        console.error('❌ Error obteniendo categoría:', err);
         return null;
     });
 
-    if (!ticketsChannel) {
+    if (!ticketsCategory) {
         return interaction.editReply({ 
-            content: '❌ ERROR: No se encontró el canal de tickets.\n\n' +
+            content: '❌ ERROR: No se encontró la categoría de tickets.\n\n' +
                      'Verifica que TICKETS_OPEN_CHANNEL_ID sea correcto.'
         });
     }
 
-    // ✅ Verificar que es un canal de texto donde se pueden crear hilos
-    if (ticketsChannel.type !== ChannelType.GuildText) {
+    // ✅ Verificar que es una CATEGORÍA
+    if (ticketsCategory.type !== ChannelType.GuildCategory) {
         return interaction.editReply({
-            content: '❌ ERROR: El canal de tickets debe ser un canal de texto normal.\n\n' +
-                     'Crea un canal de texto llamado "ticket-abierto-📁" en la categoría "Tickets Abiertos" y usa su ID.'
+            content: '❌ ERROR: TICKETS_OPEN_CHANNEL_ID debe ser una CATEGORÍA, no un canal.\n\n' +
+                     'Clic derecho en la categoría "Tickets Abiertos" → Copiar ID del canal → pégalo en tu .env'
         });
     }
 
     const nextId = await Ticket.generateNextId();
     const ticketId = `${nextId}`;
-    const threadName = `📁 ${ticketId} - ${interaction.user.username}`;
+    const channelName = `ticket-${ticketId}`;
 
     try {
-        console.log('🔧 Creando hilo de ticket...');
-        console.log('📁 Canal base:', ticketsChannel.name, `(${ticketsChannel.id})`);
-        console.log('📝 Nombre hilo:', threadName);
+        console.log('🔧 Creando canal de ticket...');
+        console.log('📁 Categoría:', ticketsCategory.name, `(${ticketsCategory.id})`);
+        console.log('📝 Nombre canal:', channelName);
         
-        // ✅ CREAR HILO PÚBLICO en el canal
-        const thread = await ticketsChannel.threads.create({
-            name: threadName,
-            autoArchiveDuration: 10080, // 7 días
-            type: ChannelType.PublicThread, // Hilo público
+        // ✅ CREAR CANAL INDIVIDUAL dentro de la categoría
+        const ticketChannel = await interaction.guild.channels.create({
+            name: channelName,
+            type: ChannelType.GuildText,
+            parent: ticketsCategory.id, // ✅ Asignar a la categoría
+            topic: `Ticket #${ticketId} - ${typeInfo.label} - Usuario: ${username}`,
+            permissionOverwrites: [
+                {
+                    // ❌ @everyone no puede ver
+                    id: interaction.guild.roles.everyone.id,
+                    deny: [PermissionFlagsBits.ViewChannel]
+                },
+                {
+                    // ✅ El usuario puede ver y escribir
+                    id: userId,
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.AttachFiles,
+                        PermissionFlagsBits.ReadMessageHistory,
+                        PermissionFlagsBits.EmbedLinks
+                    ]
+                },
+                {
+                    // ✅ El bot puede ver y gestionar
+                    id: client.user.id,
+                    allow: [
+                        PermissionFlagsBits.ViewChannel,
+                        PermissionFlagsBits.SendMessages,
+                        PermissionFlagsBits.ManageChannels,
+                        PermissionFlagsBits.ManageMessages
+                    ]
+                }
+            ],
             reason: `Ticket #${ticketId} creado por ${username}`
         });
 
-        if (!thread || !thread.id) {
-            console.error('❌ Hilo creado pero sin ID');
+        // ✅ Agregar permisos para los roles de staff
+        for (const roleKey of typeInfo.roles) {
+            const roleId = config.roles[roleKey];
+            if (!roleId) continue;
+
+            const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+            if (!role) continue;
+
+            await ticketChannel.permissionOverwrites.create(roleId, {
+                ViewChannel: true,
+                SendMessages: true,
+                AttachFiles: true,
+                ReadMessageHistory: true,
+                EmbedLinks: true
+            });
+
+            console.log(`✅ Rol ${role.name} agregado al canal`);
+        }
+
+        if (!ticketChannel || !ticketChannel.id) {
+            console.error('❌ Canal creado pero sin ID');
             return interaction.editReply({ 
                 content: '❌ Error al crear el ticket. Intenta de nuevo.' 
             });
         }
 
-        console.log(`✅ Hilo creado: ${thread.id}`);
-
-        // ✅ Agregar el usuario al hilo
-        try {
-            await thread.members.add(userId);
-            console.log(`✅ Usuario ${userId} agregado al hilo`);
-        } catch (addError) {
-            console.error('⚠️ Error agregando usuario:', addError.message);
-        }
-
-        // ✅ Agregar roles de staff al hilo
-        try {
-            for (const roleKey of typeInfo.roles) {
-                const roleId = config.roles[roleKey];
-                if (!roleId) continue;
-
-                const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
-                if (!role) continue;
-
-                // Agregar primeros 10 miembros con el rol
-                const members = Array.from(role.members.values()).slice(0, 10);
-                for (const member of members) {
-                    try {
-                        await thread.members.add(member.id);
-                    } catch (err) {
-                        // Ignorar errores al agregar miembros
-                    }
-                }
-                console.log(`✅ Rol ${role.name} agregado al hilo`);
-            }
-        } catch (roleError) {
-            console.error('⚠️ Error agregando staff:', roleError.message);
-        }
+        console.log(`✅ Canal creado: ${ticketChannel.id}`);
 
         // Guardar en BD
         await Ticket.create({
             ticketId,
-            channelId: thread.id,
+            channelId: ticketChannel.id,
             userId,
             username,
             type: ticketType,
@@ -234,8 +250,8 @@ async function handleTicketCreate(interaction, client) {
 
         console.log(`✅ Ticket guardado en BD`);
 
-        // ✅ Mensaje inicial en el hilo
-        await thread.send({
+        // ✅ Mensaje inicial en el canal
+        await ticketChannel.send({
             content: `<@${userId}>`,
             embeds: [{
                 title: `${typeInfo.emoji} ${typeInfo.label}`,
@@ -263,27 +279,17 @@ async function handleTicketCreate(interaction, client) {
             }]
         });
 
-        // ✅ Notificación en el canal principal (opcional)
-        await ticketsChannel.send({
-            content: `🎫 **Nuevo ticket:** <@${userId}> - ${typeInfo.label}`,
-            embeds: [{
-                description: `📋 **ID:** ${ticketId}\n🧵 **Hilo:** <#${thread.id}>`,
-                color: parseInt(typeInfo.color.replace('#', ''), 16)
-            }]
-        });
-
         // ✅ Respuesta al usuario
-        const threadUrl = `https://discord.com/channels/${interaction.guildId}/${thread.id}`;
         await interaction.editReply({ 
             content: `✅ **Ticket #${ticketId} creado!**\n\n` +
-                     `📂 Ve a tu ticket: <#${thread.id}>`,
+                     `📂 Ve a tu ticket: <#${ticketChannel.id}>`,
             components: [{
                 type: 1,
                 components: [{
                     type: 2,
                     label: '📂 Ir al Ticket',
                     style: 5,
-                    url: threadUrl
+                    url: `https://discord.com/channels/${interaction.guildId}/${ticketChannel.id}`
                 }]
             }]
         });
@@ -295,7 +301,7 @@ async function handleTicketCreate(interaction, client) {
             userId,
             type: ticketType,
             detail,
-            channelId: thread.id
+            channelId: ticketChannel.id
         });
 
         // Stats
@@ -313,8 +319,8 @@ async function handleTicketCreate(interaction, client) {
         return interaction.editReply({ 
             content: '❌ Error al crear el ticket.\n\n' +
                      '**Posibles causas:**\n' +
-                     '• El bot no tiene permisos para crear hilos\n' +
-                     '• El canal no permite hilos\n' +
+                     '• El bot no tiene permisos para crear canales\n' +
+                     '• La categoría está llena (máximo 50 canales)\n' +
                      `\n**Error:** \`${error.message}\``
         });
     }
@@ -412,11 +418,24 @@ async function handleCloseWithReason(interaction, client) {
 
     await ticket.close(interaction.user.id, interaction.user.tag, reason);
 
-    // ✅ Si es un hilo, archivarlo y bloquearlo
-    if (interaction.channel.isThread()) {
+    // ✅ Si es un canal de ticket, moverlo a categoría cerrados
+    if (!interaction.channel.isThread()) {
         try {
-            // Renombrar el hilo
-            await interaction.channel.setName(`🔒 ${ticket.ticketId} - cerrado`);
+            // Obtener categoría de tickets cerrados
+            const closedCategory = await interaction.guild.channels.fetch(config.channels.ticketsClosed).catch(() => null);
+            
+            if (closedCategory && closedCategory.type === ChannelType.GuildCategory) {
+                // Mover a categoría cerrados
+                await interaction.channel.setParent(closedCategory.id);
+            }
+            
+            // Renombrar el canal
+            await interaction.channel.setName(`cerrado-${ticket.ticketId}`);
+            
+            // Bloquear el canal (solo lectura para el usuario)
+            await interaction.channel.permissionOverwrites.edit(ticket.userId, {
+                SendMessages: false
+            });
             
             // Enviar mensaje de cierre
             await interaction.channel.send({
@@ -439,11 +458,8 @@ async function handleCloseWithReason(interaction, client) {
                 }]
             });
             
-            // Bloquear y archivar
-            await interaction.channel.setLocked(true);
-            await interaction.channel.setArchived(true);
         } catch (err) {
-            console.error('Error cerrando hilo:', err);
+            console.error('Error cerrando canal:', err);
         }
     }
 
@@ -475,14 +491,26 @@ async function handleTicketReopen(interaction, client) {
     ticket.inactivityWarned = false;
     await ticket.save();
 
-    // ✅ Si es un hilo, desarchivarlo
-    if (interaction.channel.isThread()) {
+    // ✅ Si es un canal de ticket, moverlo de vuelta a abiertos
+    if (!interaction.channel.isThread()) {
         try {
-            await interaction.channel.setArchived(false);
-            await interaction.channel.setLocked(false);
-            await interaction.channel.setName(`📁 ${ticket.ticketId} - reabierto`);
+            // Obtener categoría de tickets abiertos
+            const openCategory = await interaction.guild.channels.fetch(config.channels.ticketsOpen).catch(() => null);
+            
+            if (openCategory && openCategory.type === ChannelType.GuildCategory) {
+                // Mover a categoría abiertos
+                await interaction.channel.setParent(openCategory.id);
+            }
+            
+            // Renombrar el canal
+            await interaction.channel.setName(`ticket-${ticket.ticketId}`);
+            
+            // Desbloquear el canal
+            await interaction.channel.permissionOverwrites.edit(ticket.userId, {
+                SendMessages: true
+            });
         } catch (err) {
-            console.error('Error reabriendo hilo:', err);
+            console.error('Error reabriendo canal:', err);
         }
     }
 
@@ -518,7 +546,7 @@ async function handleTicketReopen(interaction, client) {
 =========================== */
 async function handleTicketDelete(interaction, client) {
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
-    await interaction.reply({ content: '🗑️ Este hilo será eliminado en 5 segundos...', ephemeral: true });
+    await interaction.reply({ content: '🗑️ Este canal será eliminado en 5 segundos...', ephemeral: true });
 
     if (ticket) {
         await logger.sendTicketLog(client, {
@@ -562,16 +590,13 @@ async function handleAddStaffConfirm(interaction, client) {
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
 
     try {
-        // ✅ Si es un hilo, agregar miembro
-        if (interaction.channel.isThread()) {
-            await interaction.channel.members.add(staffId);
-        } else {
-            // Si es canal normal, dar permisos
-            await interaction.channel.permissionOverwrites.edit(staffId, { 
-                ViewChannel: true, 
-                SendMessages: true 
-            });
-        }
+        // ✅ Dar permisos al staff en el canal
+        await interaction.channel.permissionOverwrites.edit(staffId, { 
+            ViewChannel: true, 
+            SendMessages: true,
+            AttachFiles: true,
+            ReadMessageHistory: true
+        });
 
         await interaction.channel.send({ 
             content: `✅ <@${staffId}> ha sido añadido al ticket por <@${interaction.user.id}>` 
