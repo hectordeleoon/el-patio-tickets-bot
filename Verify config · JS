@@ -1,0 +1,128 @@
+require('dotenv').config();
+
+/**
+ * Script de verificación de configuración
+ * Ejecuta este archivo para verificar que todos los roles estén configurados correctamente
+ * 
+ * Uso: node verify-config.js
+ */
+
+const config = require('./config/config');
+
+console.log('\n═══════════════════════════════════════════════════════════');
+console.log('🔍 VERIFICACIÓN DE CONFIGURACIÓN - BOT DE TICKETS');
+console.log('═══════════════════════════════════════════════════════════\n');
+
+// Verificar roles
+console.log('📋 ROLES CONFIGURADOS:\n');
+
+const roles = {
+    'Support': process.env.SUPPORT_ROLE_ID,
+    'Finance': process.env.FINANCE_ROLE_ID,
+    'Moderator': process.env.MODERATOR_ROLE_ID,
+    'Admin': process.env.ADMIN_ROLE_ID,
+    'Senior Admin': process.env.SENIOR_ADMIN_ROLE_ID,
+    'Staff General': process.env.STAFF_ROLE_ID
+};
+
+let missingRoles = [];
+let configuredRoles = 0;
+
+for (const [name, id] of Object.entries(roles)) {
+    if (id && id.trim() !== '') {
+        console.log(`✅ ${name.padEnd(20)} → ${id}`);
+        configuredRoles++;
+    } else {
+        console.log(`❌ ${name.padEnd(20)} → NO CONFIGURADO`);
+        missingRoles.push(name);
+    }
+}
+
+console.log('\n═══════════════════════════════════════════════════════════\n');
+
+// Verificar tipos de tickets y sus roles
+console.log('🎫 TIPOS DE TICKETS Y ROLES REQUERIDOS:\n');
+
+for (const [key, ticketType] of Object.entries(config.ticketTypes)) {
+    console.log(`${ticketType.emoji} ${ticketType.label}`);
+    console.log(`   Roles requeridos: ${ticketType.roles.join(', ')}`);
+    
+    let allRolesConfigured = true;
+    for (const roleKey of ticketType.roles) {
+        const roleId = config.roles[roleKey];
+        if (!roleId || roleId.trim() === '') {
+            console.log(`   ❌ Falta configurar: ${roleKey.toUpperCase()}_ROLE_ID`);
+            allRolesConfigured = false;
+        }
+    }
+    
+    if (allRolesConfigured) {
+        console.log(`   ✅ Todos los roles configurados correctamente`);
+    }
+    console.log('');
+}
+
+console.log('═══════════════════════════════════════════════════════════\n');
+
+// Verificar canales
+console.log('📺 CANALES CONFIGURADOS:\n');
+
+const channels = {
+    'Panel de Tickets': process.env.PANEL_CHANNEL_ID,
+    'Logs': process.env.LOG_CHANNEL_ID,
+    'Staff Chat': process.env.STAFF_CHAT_CHANNEL_ID,
+    'Categoría Tickets Abiertos': process.env.TICKETS_OPEN_CHANNEL_ID,
+    'Categoría Tickets Cerrados': process.env.TICKETS_CLOSED_CHANNEL_ID
+};
+
+let missingChannels = [];
+
+for (const [name, id] of Object.entries(channels)) {
+    if (id && id.trim() !== '') {
+        console.log(`✅ ${name.padEnd(30)} → ${id}`);
+    } else {
+        console.log(`⚠️ ${name.padEnd(30)} → NO CONFIGURADO`);
+        if (name.includes('Panel') || name.includes('Categoría')) {
+            missingChannels.push(name);
+        }
+    }
+}
+
+console.log('\n═══════════════════════════════════════════════════════════\n');
+
+// Resumen
+console.log('📊 RESUMEN:\n');
+console.log(`✅ Roles configurados: ${configuredRoles}/${Object.keys(roles).length}`);
+console.log(`⚠️ Roles faltantes: ${missingRoles.length}`);
+
+if (missingRoles.length > 0) {
+    console.log('\n❌ ROLES QUE DEBES CONFIGURAR:');
+    missingRoles.forEach(role => {
+        const envName = role.toUpperCase().replace(/ /g, '_') + '_ROLE_ID';
+        console.log(`   • ${envName}`);
+    });
+}
+
+if (missingChannels.length > 0) {
+    console.log('\n❌ CANALES CRÍTICOS QUE DEBES CONFIGURAR:');
+    missingChannels.forEach(channel => {
+        console.log(`   • ${channel}`);
+    });
+}
+
+console.log('\n═══════════════════════════════════════════════════════════');
+
+if (missingRoles.length === 0 && missingChannels.length === 0) {
+    console.log('\n✅ ¡CONFIGURACIÓN COMPLETA! Tu bot está listo para funcionar.\n');
+} else {
+    console.log('\n⚠️ CONFIGURACIÓN INCOMPLETA');
+    console.log('\nPasos para completar la configuración:');
+    console.log('1. Abre tu archivo .env');
+    console.log('2. Agrega las variables faltantes con sus IDs correspondientes');
+    console.log('3. Para obtener IDs de Discord:');
+    console.log('   • Activa el Modo Desarrollador en Discord');
+    console.log('   • Clic derecho en roles/canales → Copiar ID');
+    console.log('4. Reinicia el bot después de editar el .env\n');
+}
+
+console.log('═══════════════════════════════════════════════════════════\n');
