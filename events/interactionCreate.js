@@ -171,106 +171,32 @@ async function handleTicketCreate(interaction, client) {
         console.log('📁 Categoría:', ticketsCategory.name, `(${ticketsCategory.id})`);
         console.log('📝 Nombre canal:', channelName);
         console.log('🎫 Tipo de ticket:', ticketType);
-        console.log('👥 Roles requeridos:', typeInfo.roles.join(', '));
+        console.log('👥 Tipo:', typeInfo.label);
         
-        // ✅ PREPARAR PERMISOS ANTES DE CREAR EL CANAL
-        const permissionOverwrites = [
-            {
-                // ❌ @everyone no puede ver
-                id: interaction.guild.roles.everyone.id,
-                deny: [PermissionFlagsBits.ViewChannel]
-            },
-            {
-                // ✅ El usuario puede ver y escribir
-                id: userId,
-                allow: [
-                    PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.SendMessages,
-                    PermissionFlagsBits.AttachFiles,
-                    PermissionFlagsBits.ReadMessageHistory,
-                    PermissionFlagsBits.EmbedLinks
-                ]
-            },
-            {
-                // ✅ El bot puede ver y gestionar
-                id: client.user.id,
-                allow: [
-                    PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.SendMessages,
-                    PermissionFlagsBits.ManageChannels,
-                    PermissionFlagsBits.ManageMessages
-                ]
-            }
-        ];
-
-        console.log('\n📋 Verificando roles de staff...');
+        // ✅ CREAR CANAL Y HEREDAR PERMISOS DE LA CATEGORÍA
+        console.log('🔄 Creando canal con permisos sincronizados de la categoría...');
         
-        // ✅ AGREGAR PERMISOS PARA ROLES DE STAFF DESDE EL INICIO
-        let rolesAdded = 0;
-        for (const roleKey of typeInfo.roles) {
-            const roleId = config.roles[roleKey];
-            
-            if (!roleId) {
-                console.warn(`⚠️ ADVERTENCIA: Rol "${roleKey}" no tiene ID configurada en el .env`);
-                console.warn(`   Agrega ${roleKey.toUpperCase()}_ROLE_ID a tu archivo .env`);
-                continue;
-            }
-
-            console.log(`🔍 Buscando rol "${roleKey}" (ID: ${roleId})...`);
-            
-            const role = await interaction.guild.roles.fetch(roleId).catch(err => {
-                console.error(`❌ Error obteniendo rol ${roleKey}:`, err.message);
-                return null;
-            });
-            
-            if (!role) {
-                console.warn(`⚠️ ADVERTENCIA: No se encontró el rol con ID ${roleId} en el servidor`);
-                console.warn(`   Verifica que la ID en tu .env sea correcta`);
-                continue;
-            }
-
-            // Agregar permisos del rol al array ANTES de crear el canal
-            permissionOverwrites.push({
-                id: roleId,
-                allow: [
-                    PermissionFlagsBits.ViewChannel,
-                    PermissionFlagsBits.SendMessages,
-                    PermissionFlagsBits.AttachFiles,
-                    PermissionFlagsBits.ReadMessageHistory,
-                    PermissionFlagsBits.EmbedLinks
-                ]
-            });
-
-            rolesAdded++;
-            console.log(`✅ Rol "${role.name}" (${roleKey}) agregado correctamente`);
-        }
-        
-        console.log(`\n📊 Total de roles de staff agregados: ${rolesAdded}/${typeInfo.roles.length}`);
-        
-        if (rolesAdded === 0) {
-            console.error('❌ ERROR CRÍTICO: No se agregó ningún rol de staff al ticket');
-            console.error('   Verifica tu archivo .env y asegúrate de que las IDs de roles estén configuradas');
-            return interaction.editReply({
-                content: '❌ **ERROR DE CONFIGURACIÓN**\n\n' +
-                         `No se encontraron roles de staff válidos para el tipo "${typeInfo.label}".\n\n` +
-                         '**Roles necesarios:**\n' +
-                         typeInfo.roles.map(r => `• ${r.toUpperCase()}_ROLE_ID`).join('\n') +
-                         '\n\n**Solución:**\n' +
-                         '1. Verifica tu archivo .env\n' +
-                         '2. Asegúrate de que las IDs de roles sean correctas\n' +
-                         '3. Reinicia el bot después de editar el .env'
-            });
-        }
-        
-        // ✅ CREAR CANAL CON TODOS LOS PERMISOS YA INCLUIDOS
         const ticketChannel = await interaction.guild.channels.create({
             name: channelName,
             type: ChannelType.GuildText,
-            parent: ticketsCategory.id,
+            parent: ticketsCategory.id, // ✅ Se asigna a la categoría
             topic: `Ticket #${ticketId} - ${typeInfo.label} - Usuario: ${username}`,
-            permissionOverwrites: permissionOverwrites, // ✅ Todos los permisos desde el inicio
             reason: `Ticket #${ticketId} creado por ${username}`
+            // ❌ NO se pasan permissionOverwrites para que herede de la categoría
         });
+
+        console.log('✅ Canal creado, heredando permisos de la categoría');
+
+        // ✅ SOLO agregar permisos específicos para el usuario que creó el ticket
+        await ticketChannel.permissionOverwrites.create(userId, {
+            ViewChannel: true,
+            SendMessages: true,
+            AttachFiles: true,
+            ReadMessageHistory: true,
+            EmbedLinks: true
+        });
+
+        console.log(`✅ Permisos del usuario <@${userId}> agregados al canal`);
 
         if (!ticketChannel || !ticketChannel.id) {
             console.error('❌ Canal creado pero sin ID');
@@ -279,7 +205,10 @@ async function handleTicketCreate(interaction, client) {
             });
         }
 
-        console.log(`✅ Canal creado con permisos completos: ${ticketChannel.id}`);
+        console.log(`✅ Canal de ticket creado exitosamente: ${ticketChannel.name} (${ticketChannel.id})`);
+        console.log(`✅ El canal heredó los permisos de la categoría "${ticketsCategory.name}"`);
+        console.log(`ℹ️ Asegúrate de que la categoría tenga configurados los permisos de tus roles de staff`);
+
 
         // Guardar en BD
         await Ticket.create({
