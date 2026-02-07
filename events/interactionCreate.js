@@ -170,6 +170,8 @@ async function handleTicketCreate(interaction, client) {
         console.log('🔧 Creando canal de ticket...');
         console.log('📁 Categoría:', ticketsCategory.name, `(${ticketsCategory.id})`);
         console.log('📝 Nombre canal:', channelName);
+        console.log('🎫 Tipo de ticket:', ticketType);
+        console.log('👥 Roles requeridos:', typeInfo.roles.join(', '));
         
         // ✅ PREPARAR PERMISOS ANTES DE CREAR EL CANAL
         const permissionOverwrites = [
@@ -201,17 +203,29 @@ async function handleTicketCreate(interaction, client) {
             }
         ];
 
+        console.log('\n📋 Verificando roles de staff...');
+        
         // ✅ AGREGAR PERMISOS PARA ROLES DE STAFF DESDE EL INICIO
+        let rolesAdded = 0;
         for (const roleKey of typeInfo.roles) {
             const roleId = config.roles[roleKey];
+            
             if (!roleId) {
-                console.warn(`⚠️ Rol ${roleKey} no configurado en config.roles`);
+                console.warn(`⚠️ ADVERTENCIA: Rol "${roleKey}" no tiene ID configurada en el .env`);
+                console.warn(`   Agrega ${roleKey.toUpperCase()}_ROLE_ID a tu archivo .env`);
                 continue;
             }
 
-            const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+            console.log(`🔍 Buscando rol "${roleKey}" (ID: ${roleId})...`);
+            
+            const role = await interaction.guild.roles.fetch(roleId).catch(err => {
+                console.error(`❌ Error obteniendo rol ${roleKey}:`, err.message);
+                return null;
+            });
+            
             if (!role) {
-                console.warn(`⚠️ No se encontró el rol con ID: ${roleId}`);
+                console.warn(`⚠️ ADVERTENCIA: No se encontró el rol con ID ${roleId} en el servidor`);
+                console.warn(`   Verifica que la ID en tu .env sea correcta`);
                 continue;
             }
 
@@ -227,7 +241,25 @@ async function handleTicketCreate(interaction, client) {
                 ]
             });
 
-            console.log(`✅ Rol ${role.name} agregado a permisos iniciales`);
+            rolesAdded++;
+            console.log(`✅ Rol "${role.name}" (${roleKey}) agregado correctamente`);
+        }
+        
+        console.log(`\n📊 Total de roles de staff agregados: ${rolesAdded}/${typeInfo.roles.length}`);
+        
+        if (rolesAdded === 0) {
+            console.error('❌ ERROR CRÍTICO: No se agregó ningún rol de staff al ticket');
+            console.error('   Verifica tu archivo .env y asegúrate de que las IDs de roles estén configuradas');
+            return interaction.editReply({
+                content: '❌ **ERROR DE CONFIGURACIÓN**\n\n' +
+                         `No se encontraron roles de staff válidos para el tipo "${typeInfo.label}".\n\n` +
+                         '**Roles necesarios:**\n' +
+                         typeInfo.roles.map(r => `• ${r.toUpperCase()}_ROLE_ID`).join('\n') +
+                         '\n\n**Solución:**\n' +
+                         '1. Verifica tu archivo .env\n' +
+                         '2. Asegúrate de que las IDs de roles sean correctas\n' +
+                         '3. Reinicia el bot después de editar el .env'
+            });
         }
         
         // ✅ CREAR CANAL CON TODOS LOS PERMISOS YA INCLUIDOS
