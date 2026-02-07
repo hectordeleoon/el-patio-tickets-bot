@@ -171,61 +171,74 @@ async function handleTicketCreate(interaction, client) {
         console.log('📁 Categoría:', ticketsCategory.name, `(${ticketsCategory.id})`);
         console.log('📝 Nombre canal:', channelName);
         
-        // ✅ CREAR CANAL INDIVIDUAL dentro de la categoría
+        // ✅ PREPARAR PERMISOS ANTES DE CREAR EL CANAL
+        const permissionOverwrites = [
+            {
+                // ❌ @everyone no puede ver
+                id: interaction.guild.roles.everyone.id,
+                deny: [PermissionFlagsBits.ViewChannel]
+            },
+            {
+                // ✅ El usuario puede ver y escribir
+                id: userId,
+                allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.AttachFiles,
+                    PermissionFlagsBits.ReadMessageHistory,
+                    PermissionFlagsBits.EmbedLinks
+                ]
+            },
+            {
+                // ✅ El bot puede ver y gestionar
+                id: client.user.id,
+                allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.ManageChannels,
+                    PermissionFlagsBits.ManageMessages
+                ]
+            }
+        ];
+
+        // ✅ AGREGAR PERMISOS PARA ROLES DE STAFF DESDE EL INICIO
+        for (const roleKey of typeInfo.roles) {
+            const roleId = config.roles[roleKey];
+            if (!roleId) {
+                console.warn(`⚠️ Rol ${roleKey} no configurado en config.roles`);
+                continue;
+            }
+
+            const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+            if (!role) {
+                console.warn(`⚠️ No se encontró el rol con ID: ${roleId}`);
+                continue;
+            }
+
+            // Agregar permisos del rol al array ANTES de crear el canal
+            permissionOverwrites.push({
+                id: roleId,
+                allow: [
+                    PermissionFlagsBits.ViewChannel,
+                    PermissionFlagsBits.SendMessages,
+                    PermissionFlagsBits.AttachFiles,
+                    PermissionFlagsBits.ReadMessageHistory,
+                    PermissionFlagsBits.EmbedLinks
+                ]
+            });
+
+            console.log(`✅ Rol ${role.name} agregado a permisos iniciales`);
+        }
+        
+        // ✅ CREAR CANAL CON TODOS LOS PERMISOS YA INCLUIDOS
         const ticketChannel = await interaction.guild.channels.create({
             name: channelName,
             type: ChannelType.GuildText,
-            parent: ticketsCategory.id, // ✅ Asignar a la categoría
+            parent: ticketsCategory.id,
             topic: `Ticket #${ticketId} - ${typeInfo.label} - Usuario: ${username}`,
-            permissionOverwrites: [
-                {
-                    // ❌ @everyone no puede ver
-                    id: interaction.guild.roles.everyone.id,
-                    deny: [PermissionFlagsBits.ViewChannel]
-                },
-                {
-                    // ✅ El usuario puede ver y escribir
-                    id: userId,
-                    allow: [
-                        PermissionFlagsBits.ViewChannel,
-                        PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.AttachFiles,
-                        PermissionFlagsBits.ReadMessageHistory,
-                        PermissionFlagsBits.EmbedLinks
-                    ]
-                },
-                {
-                    // ✅ El bot puede ver y gestionar
-                    id: client.user.id,
-                    allow: [
-                        PermissionFlagsBits.ViewChannel,
-                        PermissionFlagsBits.SendMessages,
-                        PermissionFlagsBits.ManageChannels,
-                        PermissionFlagsBits.ManageMessages
-                    ]
-                }
-            ],
+            permissionOverwrites: permissionOverwrites, // ✅ Todos los permisos desde el inicio
             reason: `Ticket #${ticketId} creado por ${username}`
         });
-
-        // ✅ Agregar permisos para los roles de staff
-        for (const roleKey of typeInfo.roles) {
-            const roleId = config.roles[roleKey];
-            if (!roleId) continue;
-
-            const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
-            if (!role) continue;
-
-            await ticketChannel.permissionOverwrites.create(roleId, {
-                ViewChannel: true,
-                SendMessages: true,
-                AttachFiles: true,
-                ReadMessageHistory: true,
-                EmbedLinks: true
-            });
-
-            console.log(`✅ Rol ${role.name} agregado al canal`);
-        }
 
         if (!ticketChannel || !ticketChannel.id) {
             console.error('❌ Canal creado pero sin ID');
@@ -234,7 +247,7 @@ async function handleTicketCreate(interaction, client) {
             });
         }
 
-        console.log(`✅ Canal creado: ${ticketChannel.id}`);
+        console.log(`✅ Canal creado con permisos completos: ${ticketChannel.id}`);
 
         // Guardar en BD
         await Ticket.create({
