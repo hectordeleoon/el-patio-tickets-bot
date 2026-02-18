@@ -1,449 +1,168 @@
-const fs = require('fs').promises;
+const fs = require('fs');
 const path = require('path');
-const moment = require('moment-timezone');
-const config = require('../config/config');
 
-class TranscriptGenerator {
-    constructor() {
-        this.transcriptDir = path.join(__dirname, '../transcripts');
-        this.ensureDirectory();
+const TRANSCRIPTS_DIR = path.join(__dirname, '../transcripts');
+
+// Asegurar que existe el directorio
+if (!fs.existsSync(TRANSCRIPTS_DIR)) fs.mkdirSync(TRANSCRIPTS_DIR, { recursive: true });
+
+/**
+ * Genera transcript en HTML bonito + TXT plano
+ */
+async function generate(ticket) {
+    const txtPath  = path.join(TRANSCRIPTS_DIR, `ticket-${ticket.ticketId}.txt`);
+    const htmlPath = path.join(TRANSCRIPTS_DIR, `ticket-${ticket.ticketId}.html`);
+
+    const typeLabels = {
+        'soporte-general': '🟢 Soporte General',
+        'donaciones':      '🔵 Donaciones',
+        'apelaciones':     '⚫ Apelaciones',
+        'reportar-staff':  '🔴 Reportar Staff',
+        'otros':           '🟠 Otros'
+    };
+
+    // === TXT ===
+    const txtLines = [
+        `╔══════════════════════════════════════════════════╗`,
+        `║          TRANSCRIPT - EL PATIO RP               ║`,
+        `╚══════════════════════════════════════════════════╝`,
+        ``,
+        `Ticket:    #${ticket.ticketId}`,
+        `Tipo:      ${typeLabels[ticket.type] || ticket.type}`,
+        `Usuario:   ${ticket.username} (${ticket.userId})`,
+        `Staff:     ${ticket.claimedBy?.username || 'Sin reclamar'} (${ticket.claimedBy?.userId || '-'})`,
+        `Estado:    ${ticket.status}`,
+        `Creado:    ${ticket.createdAt?.toLocaleString('es-ES') || '-'}`,
+        `Cerrado:   ${ticket.closedAt?.toLocaleString('es-ES') || '-'}`,
+        `Razón:     ${ticket.closedBy?.reason || '-'}`,
+        ``,
+        `Descripción inicial:`,
+        `${ticket.detail}`,
+        ``,
+        `══════════════════ MENSAJES ══════════════════`,
+        ``
+    ];
+
+    for (const msg of (ticket.messages || [])) {
+        const time = new Date(msg.timestamp).toLocaleString('es-ES');
+        const role = msg.isStaff ? '[STAFF]' : '[USER] ';
+        txtLines.push(`[${time}] ${role} ${msg.authorName}: ${msg.content}`);
+        if (msg.attachments?.length) {
+            for (const att of msg.attachments) txtLines.push(`  📎 ${att}`);
+        }
     }
 
-    async ensureDirectory() {
-        try {
-            await fs.mkdir(this.transcriptDir, { recursive: true });
-        } catch (error) {
-            console.error('Error creating transcript directory:', error);
-        }
+    if (ticket.rating?.stars) {
+        txtLines.push(``, `══════════════════ VALORACIÓN ══════════════════`);
+        txtLines.push(`Estrellas: ${'⭐'.repeat(ticket.rating.stars)} (${ticket.rating.stars}/5)`);
+        if (ticket.rating.comment) txtLines.push(`Comentario: ${ticket.rating.comment}`);
     }
 
-    /**
-     * Genera transcripción en formato TXT
-     */
-    async generateTXT(ticket) {
-        const lines = [];
-        
-        lines.push('═══════════════════════════════════════════════════════════');
-        lines.push(`${config.branding.serverName} - TRANSCRIPCIÓN DE TICKET`);
-        lines.push('═══════════════════════════════════════════════════════════');
-        lines.push('');
-        lines.push(`ID Ticket: ${ticket.ticketId}`);
-        lines.push(`Tipo: ${this.getTicketTypeName(ticket.type)}`);
-        lines.push(`Usuario: ${ticket.username} (${ticket.userId})`);
-        lines.push(`Creado: ${this.formatDate(ticket.createdAt)}`);
-        
-        if (ticket.claimedBy) {
-            lines.push(`Atendido por: ${ticket.claimedBy.username}`);
-            lines.push(`Fecha atención: ${this.formatDate(ticket.claimedBy.timestamp)}`);
-        }
-        
-        if (ticket.closedBy) {
-            lines.push(`Cerrado por: ${ticket.closedBy.username}`);
-            lines.push(`Fecha cierre: ${this.formatDate(ticket.closedAt)}`);
-            lines.push(`Razón: ${ticket.closedBy.reason}`);
-        }
-        
-        if (ticket.proofsProvided && ticket.proofsUrls.length > 0) {
-            lines.push('');
-            lines.push('--- PRUEBAS ADJUNTADAS ---');
-            ticket.proofsUrls.forEach((url, index) => {
-                lines.push(`${index + 1}. ${url}`);
-            });
-        }
-        
-        lines.push('');
-        lines.push('═══════════════════════════════════════════════════════════');
-        lines.push('CONVERSACIÓN');
-        lines.push('═══════════════════════════════════════════════════════════');
-        lines.push('');
-        
-        for (const msg of ticket.messages) {
-            lines.push(`[${this.formatDate(msg.timestamp)}] ${msg.authorName}:`);
-            lines.push(msg.content || '(Sin contenido de texto)');
-            
-            if (msg.attachments && msg.attachments.length > 0) {
-                lines.push('Archivos adjuntos:');
-                msg.attachments.forEach((att, index) => {
-                    lines.push(`  ${index + 1}. ${att}`);
-                });
-            }
-            
-            lines.push('');
-        }
-        
-        lines.push('═══════════════════════════════════════════════════════════');
-        lines.push(`Transcripción generada: ${this.formatDate(new Date())}`);
-        lines.push('═══════════════════════════════════════════════════════════');
-        
-        return lines.join('\n');
-    }
+    fs.writeFileSync(txtPath, txtLines.join('\n'), 'utf8');
 
-    /**
-     * Genera transcripción en formato HTML
-     */
-    async generateHTML(ticket) {
-        const html = `
-<!DOCTYPE html>
+    // === HTML ===
+    const msgRows = (ticket.messages || []).map(msg => {
+        const time = new Date(msg.timestamp).toLocaleString('es-ES');
+        const isStaff = msg.isStaff;
+        const attachHtml = (msg.attachments || [])
+            .map(a => `<a href="${a}" target="_blank" class="attachment">📎 Adjunto</a>`)
+            .join('');
+        return `
+        <div class="message ${isStaff ? 'staff' : 'user'}">
+            <div class="msg-header">
+                <span class="author">${escapeHtml(msg.authorName)}</span>
+                <span class="badge ${isStaff ? 'badge-staff' : 'badge-user'}">${isStaff ? 'STAFF' : 'USUARIO'}</span>
+                <span class="time">${time}</span>
+            </div>
+            <div class="msg-body">${escapeHtml(msg.content)}</div>
+            ${attachHtml ? `<div class="attachments">${attachHtml}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    const ratingHtml = ticket.rating?.stars ? `
+        <div class="rating-box">
+            <h3>⭐ Valoración del Usuario</h3>
+            <div class="stars">${'⭐'.repeat(ticket.rating.stars)} <span>(${ticket.rating.stars}/5)</span></div>
+            ${ticket.rating.comment ? `<p class="comment">"${escapeHtml(ticket.rating.comment)}"</p>` : ''}
+        </div>` : '';
+
+    const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ticket ${ticket.ticketId} - ${config.branding.serverName}</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            padding: 20px;
-            color: #333;
-        }
-        
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-            overflow: hidden;
-        }
-        
-        .header {
-            background: linear-gradient(135deg, #1b1e26 0%, #2d3748 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-        }
-        
-        .header h1 {
-            font-size: 28px;
-            margin-bottom: 10px;
-        }
-        
-        .header .ticket-id {
-            color: ${config.branding.colors.accent};
-            font-size: 18px;
-            font-weight: bold;
-        }
-        
-        .info-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-            padding: 30px;
-            background: #f7fafc;
-        }
-        
-        .info-box {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            border-left: 4px solid ${config.branding.colors.accent};
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        }
-        
-        .info-box label {
-            font-size: 12px;
-            text-transform: uppercase;
-            color: #718096;
-            font-weight: 600;
-            display: block;
-            margin-bottom: 8px;
-        }
-        
-        .info-box value {
-            font-size: 16px;
-            color: #2d3748;
-            font-weight: 500;
-        }
-        
-        .proofs-section {
-            padding: 30px;
-            background: #fff5e6;
-            border-top: 2px solid ${config.branding.colors.warning};
-        }
-        
-        .proofs-section h2 {
-            color: ${config.branding.colors.warning};
-            margin-bottom: 15px;
-        }
-        
-        .proof-link {
-            display: block;
-            padding: 10px;
-            margin: 5px 0;
-            background: white;
-            border-radius: 5px;
-            text-decoration: none;
-            color: #3182ce;
-            transition: all 0.3s;
-        }
-        
-        .proof-link:hover {
-            background: #e6f3ff;
-            transform: translateX(5px);
-        }
-        
-        .messages {
-            padding: 30px;
-        }
-        
-        .messages h2 {
-            margin-bottom: 25px;
-            color: #2d3748;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #e2e8f0;
-        }
-        
-        .message {
-            margin-bottom: 20px;
-            padding: 20px;
-            background: #f7fafc;
-            border-radius: 10px;
-            border-left: 4px solid #cbd5e0;
-        }
-        
-        .message.staff {
-            background: #e6fffa;
-            border-left-color: ${config.branding.colors.success};
-        }
-        
-        .message-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 12px;
-            align-items: center;
-        }
-        
-        .message-author {
-            font-weight: 600;
-            color: #2d3748;
-            font-size: 16px;
-        }
-        
-        .message-author.staff {
-            color: ${config.branding.colors.success};
-        }
-        
-        .message-time {
-            font-size: 12px;
-            color: #718096;
-        }
-        
-        .message-content {
-            color: #4a5568;
-            line-height: 1.6;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-        
-        .attachments {
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #e2e8f0;
-        }
-        
-        .attachment {
-            display: inline-block;
-            margin: 5px 10px 5px 0;
-            padding: 8px 15px;
-            background: white;
-            border-radius: 5px;
-            text-decoration: none;
-            color: #3182ce;
-            font-size: 14px;
-            border: 1px solid #e2e8f0;
-            transition: all 0.3s;
-        }
-        
-        .attachment:hover {
-            background: #e6f3ff;
-            border-color: #3182ce;
-        }
-        
-        .footer {
-            background: #2d3748;
-            color: white;
-            padding: 20px;
-            text-align: center;
-            font-size: 14px;
-        }
-        
-        .badge {
-            display: inline-block;
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-        
-        .badge.open { background: #c6f6d5; color: #22543d; }
-        .badge.claimed { background: #bee3f8; color: #2c5282; }
-        .badge.closed { background: #fed7d7; color: #742a2a; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcript Ticket #${ticket.ticketId} - El Patio RP</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; }
+  .header { background: linear-gradient(135deg, #16213e, #0f3460); padding: 30px; text-align: center; border-bottom: 3px solid #f39c12; }
+  .header h1 { font-size: 2rem; color: #f39c12; margin-bottom: 10px; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; padding: 20px 30px; background: #16213e; }
+  .meta-card { background: #0f3460; border-radius: 8px; padding: 15px; border-left: 4px solid #f39c12; }
+  .meta-card .label { font-size: 0.75rem; color: #aaa; text-transform: uppercase; margin-bottom: 5px; }
+  .meta-card .value { font-size: 1rem; font-weight: bold; color: #fff; }
+  .detail-box { margin: 20px 30px; background: #0f3460; border-radius: 8px; padding: 20px; border-left: 4px solid #3498db; }
+  .detail-box h3 { color: #3498db; margin-bottom: 10px; }
+  .messages { padding: 20px 30px; }
+  .messages h2 { color: #f39c12; margin-bottom: 20px; font-size: 1.3rem; }
+  .message { margin-bottom: 15px; padding: 15px; border-radius: 8px; }
+  .message.staff { background: #0f3460; border-left: 4px solid #27ae60; }
+  .message.user  { background: #1a1a2e; border: 1px solid #333; border-left: 4px solid #3498db; }
+  .msg-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .author { font-weight: bold; color: #fff; }
+  .badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 99px; font-weight: bold; }
+  .badge-staff { background: #27ae60; color: #fff; }
+  .badge-user  { background: #3498db; color: #fff; }
+  .time { font-size: 0.75rem; color: #888; margin-left: auto; }
+  .msg-body { color: #ddd; line-height: 1.5; white-space: pre-wrap; }
+  .attachment { display: inline-block; margin-top: 5px; margin-right: 8px; color: #f39c12; text-decoration: none; font-size: 0.85rem; }
+  .rating-box { margin: 20px 30px 30px; background: #0f3460; border-radius: 8px; padding: 20px; text-align: center; border: 2px solid #f39c12; }
+  .rating-box h3 { color: #f39c12; margin-bottom: 10px; }
+  .stars { font-size: 1.8rem; margin: 10px 0; }
+  .stars span { font-size: 1rem; color: #aaa; }
+  .comment { color: #ccc; font-style: italic; margin-top: 10px; }
+  .footer { text-align: center; padding: 20px; color: #555; font-size: 0.8rem; border-top: 1px solid #333; }
+</style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>${config.branding.serverName}</h1>
-            <div class="ticket-id">Ticket #${ticket.ticketId}</div>
-            <div style="margin-top: 10px;">
-                <span class="badge ${ticket.status}">${this.getStatusName(ticket.status)}</span>
-            </div>
-        </div>
-        
-        <div class="info-grid">
-            <div class="info-box">
-                <label>Tipo de Ticket</label>
-                <value>${this.getTicketTypeName(ticket.type)}</value>
-            </div>
-            
-            <div class="info-box">
-                <label>Usuario</label>
-                <value>${ticket.username}</value>
-            </div>
-            
-            <div class="info-box">
-                <label>Fecha de Creación</label>
-                <value>${this.formatDate(ticket.createdAt)}</value>
-            </div>
-            
-            ${ticket.claimedBy ? `
-            <div class="info-box">
-                <label>Atendido por</label>
-                <value>${ticket.claimedBy.username}</value>
-            </div>
-            ` : ''}
-            
-            ${ticket.closedBy ? `
-            <div class="info-box">
-                <label>Cerrado por</label>
-                <value>${ticket.closedBy.username}</value>
-            </div>
-            
-            <div class="info-box">
-                <label>Fecha de Cierre</label>
-                <value>${this.formatDate(ticket.closedAt)}</value>
-            </div>
-            ` : ''}
-        </div>
-        
-        ${ticket.proofsProvided && ticket.proofsUrls.length > 0 ? `
-        <div class="proofs-section">
-            <h2>⚠️ Pruebas Adjuntadas</h2>
-            ${ticket.proofsUrls.map((url, index) => `
-                <a href="${url}" target="_blank" class="proof-link">
-                    📎 Prueba ${index + 1}: ${url}
-                </a>
-            `).join('')}
-        </div>
-        ` : ''}
-        
-        <div class="messages">
-            <h2>💬 Conversación</h2>
-            ${ticket.messages.map(msg => {
-                const isStaff = msg.authorId !== ticket.userId;
-                return `
-                <div class="message ${isStaff ? 'staff' : ''}">
-                    <div class="message-header">
-                        <span class="message-author ${isStaff ? 'staff' : ''}">${msg.authorName}</span>
-                        <span class="message-time">${this.formatDate(msg.timestamp)}</span>
-                    </div>
-                    <div class="message-content">${this.escapeHtml(msg.content || '(Sin contenido de texto)')}</div>
-                    ${msg.attachments && msg.attachments.length > 0 ? `
-                    <div class="attachments">
-                        ${msg.attachments.map((att, index) => `
-                            <a href="${att}" target="_blank" class="attachment">
-                                📎 Archivo ${index + 1}
-                            </a>
-                        `).join('')}
-                    </div>
-                    ` : ''}
-                </div>
-                `;
-            }).join('')}
-        </div>
-        
-        <div class="footer">
-            Transcripción generada el ${this.formatDate(new Date())}<br>
-            ${config.branding.serverName} • Sistema de Tickets Premium
-        </div>
-    </div>
+<div class="header">
+  <h1>🎫 El Patio RP — Transcript</h1>
+  <p>Ticket #${ticket.ticketId} · ${typeLabels[ticket.type] || ticket.type}</p>
+</div>
+<div class="meta-grid">
+  <div class="meta-card"><div class="label">Ticket ID</div><div class="value">#${ticket.ticketId}</div></div>
+  <div class="meta-card"><div class="label">Usuario</div><div class="value">${escapeHtml(ticket.username)}</div></div>
+  <div class="meta-card"><div class="label">Staff</div><div class="value">${escapeHtml(ticket.claimedBy?.username || 'Sin reclamar')}</div></div>
+  <div class="meta-card"><div class="label">Estado</div><div class="value">${ticket.status}</div></div>
+  <div class="meta-card"><div class="label">Creado</div><div class="value">${ticket.createdAt?.toLocaleString('es-ES') || '-'}</div></div>
+  <div class="meta-card"><div class="label">Cerrado</div><div class="value">${ticket.closedAt?.toLocaleString('es-ES') || '-'}</div></div>
+  <div class="meta-card"><div class="label">Razón de cierre</div><div class="value">${escapeHtml(ticket.closedBy?.reason || '-')}</div></div>
+  <div class="meta-card"><div class="label">Mensajes</div><div class="value">${ticket.messages?.length || 0}</div></div>
+</div>
+<div class="detail-box">
+  <h3>📝 Descripción inicial</h3>
+  <p>${escapeHtml(ticket.detail)}</p>
+</div>
+<div class="messages">
+  <h2>💬 Mensajes (${ticket.messages?.length || 0})</h2>
+  ${msgRows || '<p style="color:#666">Sin mensajes registrados.</p>'}
+</div>
+${ratingHtml}
+<div class="footer">El Patio RP · Sistema de Tickets · Generado ${new Date().toLocaleString('es-ES')}</div>
 </body>
 </html>`;
-        
-        return html;
-    }
 
-    /**
-     * Guarda la transcripción en disco
-     */
-    async save(ticket) {
-        const results = { txt: null, html: null };
-        const format = config.system.transcriptFormat;
-        
-        try {
-            if (format === 'txt' || format === 'both') {
-                const txtContent = await this.generateTXT(ticket);
-                const txtPath = path.join(this.transcriptDir, `${ticket.ticketId}.txt`);
-                await fs.writeFile(txtPath, txtContent, 'utf8');
-                results.txt = txtPath;
-            }
-            
-            if (format === 'html' || format === 'both') {
-                const htmlContent = await this.generateHTML(ticket);
-                const htmlPath = path.join(this.transcriptDir, `${ticket.ticketId}.html`);
-                await fs.writeFile(htmlPath, htmlContent, 'utf8');
-                results.html = htmlPath;
-            }
-            
-            return results;
-        } catch (error) {
-            console.error('Error saving transcript:', error);
-            throw error;
-        }
-    }
+    fs.writeFileSync(htmlPath, html, 'utf8');
 
-    // Métodos auxiliares
-    formatDate(date) {
-        return moment(date).tz('America/Santo_Domingo').format('DD/MM/YYYY HH:mm:ss');
-    }
-
-    getTicketTypeName(type) {
-        const types = {
-            'soporte-general': '🟢 Soporte General',
-            'donaciones': '🔵 Donaciones',
-            'apelaciones': '⚫ Apelaciones',
-            'reportar-staff': '🔴 Reportar Staff',
-            'otros': '🟠 Otros'
-        };
-        return types[type] || type;
-    }
-
-    getStatusName(status) {
-        const statuses = {
-            'open': 'Abierto',
-            'claimed': 'En Atención',
-            'closed': 'Cerrado'
-        };
-        return statuses[status] || status;
-    }
-
-    escapeHtml(text) {
-        const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-        };
-        return text.replace(/[&<>"']/g, m => map[m]);
-    }
+    return { txt: txtPath, html: htmlPath };
 }
 
-module.exports = new TranscriptGenerator();
+function escapeHtml(str = '') {
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+module.exports = { generate };
