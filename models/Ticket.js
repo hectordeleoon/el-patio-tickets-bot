@@ -1,94 +1,66 @@
 const mongoose = require('mongoose');
 
 const ticketSchema = new mongoose.Schema({
-    ticketId: { type: String, required: true, unique: true },
+    ticketId:  { type: String, required: true, unique: true },
     channelId: { type: String, required: true },
-    userId: { type: String, required: true },
-    username: { type: String, required: true },
+    userId:    { type: String, required: true },
+    username:  { type: String, required: true },
     type: {
         type: String,
         required: true,
         enum: ['soporte-general', 'donaciones', 'apelaciones', 'reportar-staff', 'otros']
     },
-    detail: {
-        type: String,
-        required: true,
-        minlength: 10,
-        maxlength: 500
-    },
-    status: {
-        type: String,
-        enum: ['open', 'claimed', 'closed'],
-        default: 'open'
-    },
-    claimedBy: {
-        userId: String,
-        username: String
-    },
-    claimedAt: Date,
-    lastActivity: { type: Date, default: Date.now },
+    detail:   { type: String, required: true, minlength: 10, maxlength: 500 },
+    priority: { type: String, enum: ['normal', 'alta', 'urgente'], default: 'normal' },
+    status:   { type: String, enum: ['open', 'claimed', 'closed'], default: 'open' },
+
+    claimedBy:  { userId: String, username: String },
+    claimedAt:  Date,
+
+    lastActivity:      { type: Date, default: Date.now },
     lastStaffMessageAt: Date,
-    alert48hSent: { type: Boolean, default: false },
-    inactivityWarned: { type: Boolean, default: false },
+    alert48hSent:      { type: Boolean, default: false },
+    inactivityWarned:  { type: Boolean, default: false },
+
     additionalStaff: [{
-        userId: String,
-        username: String,
-        addedBy: String,
-        timestamp: Date
+        userId: String, username: String, addedBy: String, timestamp: Date
     }],
+
+    // Guardamos mensajes para el transcript
     messages: [{
-        authorId: String,
-        authorName: String,
-        content: String,
-        attachments: [String],
-        timestamp: Date
+        authorId: String, authorName: String, content: String,
+        attachments: [String], isStaff: Boolean, timestamp: Date
     }],
+
+    // Rating del usuario al cerrar
+    rating: {
+        stars:     { type: Number, min: 1, max: 5 },
+        comment:   String,
+        ratedAt:   Date,
+        ratedBy:   String
+    },
+
     createdAt: { type: Date, default: Date.now },
-    closedAt: Date,
-    closedBy: {
-        userId: String,
-        username: String,
-        reason: String
-    }
+    closedAt:  Date,
+    closedBy:  { userId: String, username: String, reason: String },
+
+    // Control de auto-eliminación
+    scheduledDeleteAt: Date,
+    deleteJobId:       String
 });
 
 /* ===============================
    MÉTODOS DE INSTANCIA
 ================================ */
 
-/**
- * Agrega un mensaje al ticket y actualiza la actividad
- */
-ticketSchema.methods.addMessage = function (
-    authorId,
-    authorName,
-    content,
-    attachments = [],
-    isStaff = false
-) {
-    this.messages.push({
-        authorId,
-        authorName,
-        content,
-        attachments,
-        timestamp: new Date()
-    });
-    
-    // Actualizar última actividad
+ticketSchema.methods.addMessage = function (authorId, authorName, content, attachments = [], isStaff = false) {
+    this.messages.push({ authorId, authorName, content, attachments, isStaff, timestamp: new Date() });
     this.lastActivity = new Date();
-    this.inactivityWarned = false; // Resetear advertencia si hay nueva actividad
-    
-    if (isStaff) {
-        this.lastStaffMessageAt = new Date();
-        this.alert48hSent = false;
-    }
-    
+    this.inactivityWarned = false;
+    if (isStaff) { this.lastStaffMessageAt = new Date(); this.alert48hSent = false; }
     return this.save();
 };
 
-/**
- * Reclama el ticket para un staff
- */
 ticketSchema.methods.claim = function (userId, username) {
     this.status = 'claimed';
     this.claimedBy = { userId, username };
@@ -100,9 +72,6 @@ ticketSchema.methods.claim = function (userId, username) {
     return this.save();
 };
 
-/**
- * Cierra el ticket
- */
 ticketSchema.methods.close = function (userId, username, reason) {
     this.status = 'closed';
     this.closedAt = new Date();
@@ -110,12 +79,14 @@ ticketSchema.methods.close = function (userId, username, reason) {
     return this.save();
 };
 
-/**
- * Actualiza la última actividad del ticket
- */
 ticketSchema.methods.updateActivity = function () {
     this.lastActivity = new Date();
     this.inactivityWarned = false;
+    return this.save();
+};
+
+ticketSchema.methods.setRating = function (stars, comment, ratedBy) {
+    this.rating = { stars, comment, ratedAt: new Date(), ratedBy };
     return this.save();
 };
 
@@ -123,99 +94,78 @@ ticketSchema.methods.updateActivity = function () {
    MÉTODOS ESTÁTICOS
 ================================ */
 
-/**
- * Obtiene tickets inactivos por más de X horas
- * @param {number} hours - Horas de inactividad
- * @returns {Promise<Array>} Array de tickets inactivos
- */
 ticketSchema.statics.getInactiveTickets = async function (hours) {
     const inactiveDate = new Date();
     inactiveDate.setHours(inactiveDate.getHours() - hours);
-    
-    return this.find({
-        status: { $in: ['open', 'claimed'] },
-        lastActivity: { $lt: inactiveDate }
-    });
+    return this.find({ status: { $in: ['open', 'claimed'] }, lastActivity: { $lt: inactiveDate } });
 };
 
-/**
- * Obtiene tickets que necesitan advertencia de 48h
- * @returns {Promise<Array>}
- */
 ticketSchema.statics.getTicketsNeeding48hAlert = async function () {
     const alertDate = new Date();
     alertDate.setHours(alertDate.getHours() - 48);
-    
-    return this.find({
-        status: 'claimed',
-        alert48hSent: false,
-        lastStaffMessageAt: { $lt: alertDate }
-    });
+    return this.find({ status: 'claimed', alert48hSent: false, lastStaffMessageAt: { $lt: alertDate } });
 };
 
-/**
- * Obtiene tickets abiertos de un usuario
- * @param {string} userId - ID del usuario
- * @returns {Promise<Array>}
- */
 ticketSchema.statics.getUserOpenTickets = async function (userId) {
-    return this.find({
-        userId: userId,
-        status: { $in: ['open', 'claimed'] }
-    });
+    return this.find({ userId, status: { $in: ['open', 'claimed'] } });
 };
 
-/**
- * Obtiene un ticket por su ID personalizado
- * @param {string} ticketId - ID del ticket (ej: "0001")
- * @returns {Promise<Object|null>}
- */
 ticketSchema.statics.getByTicketId = async function (ticketId) {
-    return this.findOne({ ticketId: ticketId });
+    return this.findOne({ ticketId });
 };
 
-/**
- * Obtiene un ticket por el ID del canal
- * @param {string} channelId - ID del canal
- * @returns {Promise<Object|null>}
- */
 ticketSchema.statics.getByChannelId = async function (channelId) {
-    return this.findOne({ channelId: channelId });
+    return this.findOne({ channelId });
 };
 
-/**
- * Genera el siguiente ID de ticket disponible
- * @returns {Promise<string>}
- */
+// Genera el siguiente ID con mutex para evitar condición de carrera
 ticketSchema.statics.generateNextId = async function () {
-    const lastTicket = await this.findOne()
-        .sort({ createdAt: -1 })
-        .select('ticketId');
-    
-    if (!lastTicket) {
-        return '0001';
-    }
-    
-    const lastNumber = parseInt(lastTicket.ticketId);
-    const nextNumber = lastNumber + 1;
-    return nextNumber.toString().padStart(4, '0');
+    // Usamos findOneAndUpdate atómico para evitar duplicados
+    const counter = await mongoose.connection.db
+        .collection('counters')
+        .findOneAndUpdate(
+            { _id: 'ticketId' },
+            { $inc: { seq: 1 } },
+            { upsert: true, returnDocument: 'after' }
+        );
+    const seq = counter.value?.seq || counter.seq || 1;
+    return seq.toString().padStart(4, '0');
 };
 
-/**
- * Obtiene estadísticas de tickets
- * @returns {Promise<Object>}
- */
 ticketSchema.statics.getStats = async function () {
-    const total = await this.countDocuments();
-    const open = await this.countDocuments({ status: 'open' });
-    const claimed = await this.countDocuments({ status: 'claimed' });
-    const closed = await this.countDocuments({ status: 'closed' });
-    
-    return { total, open, claimed, closed };
+    const [total, open, claimed, closed] = await Promise.all([
+        this.countDocuments(),
+        this.countDocuments({ status: 'open' }),
+        this.countDocuments({ status: 'claimed' }),
+        this.countDocuments({ status: 'closed' })
+    ]);
+    const avgRating = await this.aggregate([
+        { $match: { 'rating.stars': { $exists: true } } },
+        { $group: { _id: null, avg: { $avg: '$rating.stars' }, count: { $sum: 1 } } }
+    ]);
+    return {
+        total, open, claimed, closed,
+        avgRating: avgRating[0]?.avg?.toFixed(1) || 'N/A',
+        ratedCount: avgRating[0]?.count || 0
+    };
+};
+
+ticketSchema.statics.getStaffStats = async function (staffId) {
+    const claimed = await this.countDocuments({ 'claimedBy.userId': staffId });
+    const closed  = await this.countDocuments({ 'closedBy.userId': staffId });
+    const ratings = await this.aggregate([
+        { $match: { 'claimedBy.userId': staffId, 'rating.stars': { $exists: true } } },
+        { $group: { _id: null, avg: { $avg: '$rating.stars' }, count: { $sum: 1 } } }
+    ]);
+    return {
+        claimed, closed,
+        avgRating: ratings[0]?.avg?.toFixed(1) || 'N/A',
+        ratedCount: ratings[0]?.count || 0
+    };
 };
 
 /* ===============================
-   ÍNDICES PARA OPTIMIZACIÓN
+   ÍNDICES
 ================================ */
 ticketSchema.index({ userId: 1, status: 1 });
 ticketSchema.index({ status: 1, lastActivity: 1 });
@@ -223,5 +173,4 @@ ticketSchema.index({ status: 1, lastStaffMessageAt: 1 });
 ticketSchema.index({ channelId: 1 });
 ticketSchema.index({ ticketId: 1 });
 
-// ✅ EXPORTAR EL MODELO CON PROTECCIÓN CONTRA SOBRESCRITURA
 module.exports = mongoose.models.Ticket || mongoose.model('Ticket', ticketSchema);
