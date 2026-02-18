@@ -1,0 +1,244 @@
+const { SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder } = require('discord.js');
+const Ticket = require('../models/Ticket');
+const config = require('../config/config');
+
+module.exports = {
+    data: new SlashCommandBuilder()
+        .setName('estadisticas')
+        .setDescription('Ver estadísticas del sistema de tickets')
+        .addSubcommand(sub =>
+            sub.setName('general')
+                .setDescription('Estadísticas generales del sistema')
+        )
+        .addSubcommand(sub =>
+            sub.setName('staff')
+                .setDescription('Estadísticas de un miembro del staff')
+                .addUserOption(opt =>
+                    opt.setName('miembro')
+                        .setDescription('Staff a consultar (vacío = tú mismo)')
+                        .setRequired(false)
+                )
+        )
+        .addSubcommand(sub =>
+            sub.setName('ranking')
+                .setDescription('Ranking del staff por tickets atendidos')
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages),
+
+    async execute(interaction, client) {
+        await interaction.deferReply({ ephemeral: true });
+
+        const sub = interaction.options.getSubcommand();
+
+        if (sub === 'general')  return showGeneral(interaction);
+        if (sub === 'staff')    return showStaff(interaction);
+        if (sub === 'ranking')  return showRanking(interaction, client);
+    }
+};
+
+/* ─────────────────────────────────────────────
+   ESTADÍSTICAS GENERALES
+───────────────────────────────────────────── */
+async function showGeneral(interaction) {
+    // Conteos globales
+    const [total, open, claimed, closed] = await Promise.all([
+        Ticket.countDocuments(),
+        Ticket.countDocuments({ status: 'open' }),
+        Ticket.countDocuments({ status: 'claimed' }),
+        Ticket.countDocuments({ status: 'closed' })
+    ]);
+
+    // Tickets hoy
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayCount = await Ticket.countDocuments({ createdAt: { $gte: todayStart } });
+
+    // Tickets esta semana
+    const weekStart = new Date(Date.now() - 7 * 86_400_000);
+    const weekCount = await Ticket.countDocuments({ createdAt: { $gte: weekStart } });
+
+    // Rating promedio global
+    const ratingAgg = await Ticket.aggregate([
+        { $match: { 'rating.stars': { $exists: true } } },
+        { $group: { _id: null, avg: { $avg: '$rating.stars' }, count: { $sum: 1 } } }
+    ]);
+    const avgRating  = ratingAgg[0]?.avg?.toFixed(1) || 'N/A';
+    const ratedCount = ratingAgg[0]?.count || 0;
+
+    // Tiempo promedio de respuesta (horas entre creación y claim)
+    const responseTimeAgg = await Ticket.aggregate([
+        { $match: { claimedAt: { $exists: true } } },
+        { $project: { responseTime: { $subtract: ['$claimedAt', '$createdAt'] } } },
+        { $group: { _id: null, avg: { $avg: '$responseTime' } } }
+    ]);
+    const avgResponseHours = responseTimeAgg[0]
+        ? (responseTimeAgg[0].avg / 3_600_000).toFixed(1)
+        : 'N/A';
+
+    // Desglose por tipo
+    const byTypeFields = await Promise.all(
+        Object.entries(config.ticketTypes).map(async ([key, info]) => {
+            const count   = await Ticket.countDocuments({ type: key });
+            const pct     = total > 0 ? ((count / total) * 100).toFixed(0) : 0;
+            const bar     = buildBar(parseInt(pct));
+            return `${info.emoji} **${info.label}**: ${count} (${pct}%)\n${bar}`;
+        })
+    );
+
+    const embed = new EmbedBuilder()
+        .setColor(config.branding.colors.primary || '#1b1e26')
+        .setTitle('📊 Estadísticas Generales — Sistema de Tickets')
+        .addFields(
+            // Fila 1: conteos
+            { name: '📈 Total',        value: `${total}`,  inline: true },
+            { name: '🟡 Abiertos',     value: `${open}`,   inline: true },
+            { name: '🟢 En atención',  value: `${claimed}`,inline: true },
+            // Fila 2: más conteos
+            { name: '🔒 Cerrados',     value: `${closed}`,         inline: true },
+            { name: '📅 Hoy',          value: `${todayCount}`,     inline: true },
+            { name: '🗓️ Esta semana', value: `${weekCount}`,     inline: true },
+            // Fila 3: métricas de calidad
+            { name: '⭐ Rating promedio', value: avgRating === 'N/A' ? 'N/A' : `${avgRating}/5 (${ratedCount} valoraciones)`, inline: true },
+            { name: '⚡ T. respuesta avg', value: avgResponseHours === 'N/A' ? 'N/A' : `${avgResponseHours}h`, inline: true },
+            { name: '\u200B', value: '\u200B', inline: true },
+            // Fila 4: desglose por tipo
+            { name: '📋 Por Categoría', value: byTypeFields.join('\n'), inline: false }
+        )
+        .setFooter({ text: `${config.branding.serverName} • Generado` })
+        .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+}
+
+/* ─────────────────────────────────────────────
+   ESTADÍSTICAS DE UN STAFF
+───────────────────────────────────────────── */
+async function showStaff(interaction) {
+    const target = interaction.options.getUser('miembro') || interaction.user;
+
+    // Conteos del staff
+    const [claimed, closed] = await Promise.all([
+        Ticket.countDocuments({ 'claimedBy.userId': target.id }),
+        Ticket.countDocuments({ 'closedBy.userId': target.id, status: 'closed' })
+    ]);
+
+    // Rating promedio recibido
+    const ratingAgg = await Ticket.aggregate([
+        { $match: { 'claimedBy.userId': target.id, 'rating.stars': { $exists: true } } },
+        { $group: { _id: null, avg: { $avg: '$rating.stars' }, count: { $sum: 1 }, total: { $sum: '$rating.stars' } } }
+    ]);
+    const avgRating  = ratingAgg[0]?.avg?.toFixed(2) || 'N/A';
+    const ratedCount = ratingAgg[0]?.count || 0;
+    const totalStars = ratingAgg[0]?.total || 0;
+
+    // Distribución de estrellas
+    const starDist = await Promise.all([5, 4, 3, 2, 1].map(async s => {
+        const count = await Ticket.countDocuments({ 'claimedBy.userId': target.id, 'rating.stars': s });
+        const pct   = ratedCount > 0 ? ((count / ratedCount) * 100).toFixed(0) : 0;
+        return `${'⭐'.repeat(s)}: ${count} (${pct}%)`;
+    }));
+
+    // Tiempo promedio de respuesta de este staff
+    const responseAgg = await Ticket.aggregate([
+        { $match: { 'claimedBy.userId': target.id, claimedAt: { $exists: true } } },
+        { $project: { responseTime: { $subtract: ['$claimedAt', '$createdAt'] } } },
+        { $group: { _id: null, avg: { $avg: '$responseTime' } } }
+    ]);
+    const avgResponse = responseAgg[0]
+        ? `${(responseAgg[0].avg / 3_600_000).toFixed(1)}h`
+        : 'N/A';
+
+    // Tipos de tickets atendidos
+    const typeBreakdown = await Ticket.aggregate([
+        { $match: { 'claimedBy.userId': target.id } },
+        { $group: { _id: '$type', count: { $sum: 1 } } },
+        { $sort: { count: -1 } }
+    ]);
+    const typeLines = typeBreakdown.map(t => {
+        const info = config.ticketTypes[t._id];
+        return `${info?.emoji || '🎫'} ${info?.label || t._id}: **${t.count}**`;
+    }).join('\n') || 'Sin datos';
+
+    // Último ticket atendido
+    const lastTicket = await Ticket.findOne({ 'claimedBy.userId': target.id })
+        .sort({ claimedAt: -1 })
+        .select('ticketId claimedAt');
+
+    const ratingStars = avgRating !== 'N/A' ? Math.round(parseFloat(avgRating)) : 0;
+
+    const embed = new EmbedBuilder()
+        .setColor(config.branding.colors.accent || '#f39c12')
+        .setTitle(`📊 Estadísticas de ${target.tag}`)
+        .setThumbnail(target.displayAvatarURL())
+        .addFields(
+            { name: '🛎️ Tickets Atendidos', value: `${claimed}`,   inline: true },
+            { name: '🔒 Tickets Cerrados',   value: `${closed}`,    inline: true },
+            { name: '⚡ Tiempo Respuesta',   value: avgResponse,    inline: true },
+
+            { name: '⭐ Rating Promedio',
+              value: avgRating === 'N/A'
+                ? 'Sin valoraciones aún'
+                : `${'⭐'.repeat(ratingStars)} **${avgRating}/5**\n${ratedCount} valoraciones · ${totalStars} ⭐ totales`,
+              inline: false },
+
+            { name: '📊 Distribución de Estrellas', value: starDist.join('\n'), inline: true },
+            { name: '📋 Por Tipo de Ticket',        value: typeLines,           inline: true },
+
+            { name: '🕐 Último Ticket',
+              value: lastTicket
+                ? `#${lastTicket.ticketId} — <t:${Math.floor(new Date(lastTicket.claimedAt) / 1000)}:R>`
+                : 'Sin registros',
+              inline: false }
+        )
+        .setFooter({ text: `${config.branding.serverName} • Estadísticas de Staff` })
+        .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+}
+
+/* ─────────────────────────────────────────────
+   RANKING DE STAFF
+───────────────────────────────────────────── */
+async function showRanking(interaction, client) {
+    // Agrupar por staff con más tickets atendidos
+    const ranking = await Ticket.aggregate([
+        { $match: { 'claimedBy.userId': { $exists: true } } },
+        { $group: {
+            _id:      '$claimedBy.userId',
+            username: { $first: '$claimedBy.username' },
+            total:    { $sum: 1 },
+            closed:   { $sum: { $cond: [{ $eq: ['$status', 'closed'] }, 1, 0] } },
+            avgRating:{ $avg: '$rating.stars' }
+        }},
+        { $sort: { total: -1 } },
+        { $limit: 10 }
+    ]);
+
+    if (ranking.length === 0) {
+        return interaction.editReply({ content: '📭 No hay datos de staff aún.' });
+    }
+
+    const medals = ['🥇', '🥈', '🥉'];
+    const lines  = ranking.map((entry, i) => {
+        const medal  = medals[i] || `**${i + 1}.**`;
+        const rating = entry.avgRating ? ` · ⭐${entry.avgRating.toFixed(1)}` : '';
+        return `${medal} **${entry.username}** — ${entry.total} tickets (${entry.closed} cerrados)${rating}`;
+    });
+
+    const embed = new EmbedBuilder()
+        .setColor(config.branding.colors.accent || '#f39c12')
+        .setTitle('🏆 Ranking de Staff — Tickets Atendidos')
+        .setDescription(lines.join('\n'))
+        .setFooter({ text: `${config.branding.serverName} • Top ${ranking.length} staff` })
+        .setTimestamp();
+
+    await interaction.editReply({ embeds: [embed] });
+}
+
+/* ─────────────────────────────────────────────
+   UTILS
+───────────────────────────────────────────── */
+function buildBar(pct, length = 10) {
+    const filled = Math.round((pct / 100) * length);
+    return '█'.repeat(filled) + '░'.repeat(length - filled);
+}
