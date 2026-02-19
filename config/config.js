@@ -16,6 +16,7 @@ module.exports = {
     channels: {
         panel: process.env.PANEL_CHANNEL_ID,
         logs: process.env.LOG_CHANNEL_ID,
+        reviews: process.env.REVIEWS_CHANNEL_ID || null,
         staffChat: process.env.STAFF_CHAT_CHANNEL_ID || null,
         test: process.env.TEST_CHANNEL_ID || null,
         
