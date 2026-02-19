@@ -115,32 +115,48 @@ ticketSchema.statics.getByChannelId = async function (channelId) {
     return this.findOne({ channelId });
 };
 
-// ✅ FIX: generateNextId ahora verifica duplicados y reintenta automáticamente
+// ✅ FIX: Sincroniza el contador con el ID más alto real en BD y luego incrementa
 ticketSchema.statics.generateNextId = async function () {
-    const MAX_RETRIES = 10;
+    // 1. Buscar el ticketId más alto que ya existe en la colección de tickets
+    const lastTicket = await this.findOne({}, { ticketId: 1 })
+        .sort({ ticketId: -1 })
+        .lean();
 
-    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-        // Incrementar el contador atómicamente
-        const result = await mongoose.connection.db
+    const maxExisting = lastTicket ? parseInt(lastTicket.ticketId, 10) : 0;
+
+    // 2. Leer el valor actual del contador
+    const counterDoc = await mongoose.connection.db
+        .collection('counters')
+        .findOne({ _id: 'ticketId' });
+
+    const currentCounter = counterDoc?.seq ?? 0;
+
+    // 3. Si el contador está por detrás del máximo real, sincronizarlo
+    if (currentCounter <= maxExisting) {
+        await mongoose.connection.db
             .collection('counters')
-            .findOneAndUpdate(
+            .updateOne(
                 { _id: 'ticketId' },
-                { $inc: { seq: 1 } },
-                { upsert: true, returnDocument: 'after' }
+                { $set: { seq: maxExisting } },
+                { upsert: true }
             );
-
-        const seq = result.value?.seq ?? result.seq ?? 1;
-        const ticketId = seq.toString().padStart(4, '0');
-
-        // Verificar que el ID no existe ya en la colección de tickets
-        const exists = await this.findOne({ ticketId });
-        if (!exists) return ticketId;
-
-        // Si existe, el loop continúa e incrementa el contador nuevamente
-        console.warn(`⚠️ ticketId ${ticketId} ya existe en BD, generando siguiente...`);
+        console.log(`🔄 Contador sincronizado: ${currentCounter} → ${maxExisting}`);
     }
 
-    throw new Error('No se pudo generar un ticketId único tras varios intentos.');
+    // 4. Ahora sí incrementar de forma atómica para obtener el siguiente ID
+    const result = await mongoose.connection.db
+        .collection('counters')
+        .findOneAndUpdate(
+            { _id: 'ticketId' },
+            { $inc: { seq: 1 } },
+            { upsert: true, returnDocument: 'after' }
+        );
+
+    const seq = result.value?.seq ?? result.seq ?? (maxExisting + 1);
+    const ticketId = seq.toString().padStart(4, '0');
+
+    console.log(`🎫 Nuevo ticketId generado: ${ticketId}`);
+    return ticketId;
 };
 
 ticketSchema.statics.getStats = async function () {
