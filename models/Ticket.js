@@ -26,25 +26,22 @@ const ticketSchema = new mongoose.Schema({
         userId: String, username: String, addedBy: String, timestamp: Date
     }],
 
-    // Guardamos mensajes para el transcript
     messages: [{
         authorId: String, authorName: String, content: String,
         attachments: [String], isStaff: Boolean, timestamp: Date
     }],
 
-    // Rating del usuario al cerrar
     rating: {
-        stars:     { type: Number, min: 1, max: 5 },
-        comment:   String,
-        ratedAt:   Date,
-        ratedBy:   String
+        stars:   { type: Number, min: 1, max: 5 },
+        comment: String,
+        ratedAt: Date,
+        ratedBy: String
     },
 
     createdAt: { type: Date, default: Date.now },
     closedAt:  Date,
     closedBy:  { userId: String, username: String, reason: String },
 
-    // Control de auto-eliminación
     scheduledDeleteAt: Date,
     deleteJobId:       String
 });
@@ -118,18 +115,32 @@ ticketSchema.statics.getByChannelId = async function (channelId) {
     return this.findOne({ channelId });
 };
 
-// Genera el siguiente ID con mutex para evitar condición de carrera
+// ✅ FIX: generateNextId ahora verifica duplicados y reintenta automáticamente
 ticketSchema.statics.generateNextId = async function () {
-    // Usamos findOneAndUpdate atómico para evitar duplicados
-    const counter = await mongoose.connection.db
-        .collection('counters')
-        .findOneAndUpdate(
-            { _id: 'ticketId' },
-            { $inc: { seq: 1 } },
-            { upsert: true, returnDocument: 'after' }
-        );
-    const seq = counter.value?.seq || counter.seq || 1;
-    return seq.toString().padStart(4, '0');
+    const MAX_RETRIES = 10;
+
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+        // Incrementar el contador atómicamente
+        const result = await mongoose.connection.db
+            .collection('counters')
+            .findOneAndUpdate(
+                { _id: 'ticketId' },
+                { $inc: { seq: 1 } },
+                { upsert: true, returnDocument: 'after' }
+            );
+
+        const seq = result.value?.seq ?? result.seq ?? 1;
+        const ticketId = seq.toString().padStart(4, '0');
+
+        // Verificar que el ID no existe ya en la colección de tickets
+        const exists = await this.findOne({ ticketId });
+        if (!exists) return ticketId;
+
+        // Si existe, el loop continúa e incrementa el contador nuevamente
+        console.warn(`⚠️ ticketId ${ticketId} ya existe en BD, generando siguiente...`);
+    }
+
+    throw new Error('No se pudo generar un ticketId único tras varios intentos.');
 };
 
 ticketSchema.statics.getStats = async function () {
