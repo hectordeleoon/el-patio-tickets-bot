@@ -484,20 +484,6 @@ async function handleCloseWithReason(interaction, client) {
         }).catch(() => {});
     }
 
-    await interaction.channel.send({
-        embeds: [new EmbedBuilder()
-            .setColor(0xe74c3c)
-            .setTitle('🔒 Ticket Cerrado')
-            .setDescription('Este canal será eliminado en **10 segundos**.')
-            .addFields(
-                { name: '🔒 Cerrado por', value: `<@${interaction.user.id}>`, inline: true },
-                { name: '📋 Razón',       value: reason,                      inline: true }
-            )
-            .setFooter({ text: transcriptPaths ? '📄 Transcript enviado al canal de logs' : '' })
-            .setTimestamp()
-        ]
-    });
-
     await logger.sendTicketLog(client, {
         action: 'closed', ticketId: ticket.ticketId,
         userId: ticket.userId, closedBy: interaction.user.id,
@@ -510,13 +496,69 @@ async function handleCloseWithReason(interaction, client) {
         if (stats?.incrementClosed) await stats.incrementClosed();
     } catch (e) {}
 
-    await interaction.editReply({ content: '✅ Ticket cerrado. El canal se eliminará en 10 segundos.' });
+    // ── MOVER A CATEGORÍA DE CERRADOS ────────────────────────────────
+    const closedCategoryId = config.categories.closed || config.channels.ticketsClosed;
 
-    setTimeout(async () => {
-        await interaction.channel.delete(`Ticket #${ticket.ticketId} cerrado`).catch(e => {
-            console.error(`❌ No se pudo eliminar canal del ticket #${ticket.ticketId}:`, e.message);
+    if (closedCategoryId) {
+        // Quitar permisos de escritura al usuario en el canal cerrado
+        await interaction.channel.permissionOverwrites.edit(ticket.userId, {
+            ViewChannel:        true,
+            SendMessages:       false,
+            AttachFiles:        false,
+            ReadMessageHistory: true,
+            EmbedLinks:         false
+        }).catch(() => {});
+
+        await interaction.channel.send({
+            embeds: [new EmbedBuilder()
+                .setColor(0xe74c3c)
+                .setTitle('🔒 Ticket Cerrado')
+                .setDescription('Este canal será movido a **Tickets Cerrados** y eliminado automáticamente en **72 horas**.')
+                .addFields(
+                    { name: '🔒 Cerrado por', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: '📋 Razón',       value: reason,                      inline: true }
+                )
+                .setFooter({ text: transcriptPaths ? '📄 Transcript enviado al canal de logs' : '' })
+                .setTimestamp()
+            ]
         });
-    }, 10_000);
+
+        // Renombrar canal para indicar que está cerrado
+        await interaction.channel.setName(`closed-${ticket.ticketId}`).catch(() => {});
+
+        // Mover a categoría de cerrados
+        await interaction.channel.setParent(closedCategoryId, { lockPermissions: false })
+            .catch(e => console.error(`❌ No se pudo mover canal a cerrados:`, e.message));
+
+        // Guardar la fecha de cierre para que checkTickets lo borre a las 72h
+        ticket.scheduledDeleteAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+        await ticket.save();
+
+        await interaction.editReply({ content: '✅ Ticket cerrado y movido a **Tickets Cerrados**. Se eliminará automáticamente en 72 horas.' });
+
+    } else {
+        // Si no hay categoría de cerrados configurada, eliminar en 10 segundos (comportamiento anterior)
+        await interaction.channel.send({
+            embeds: [new EmbedBuilder()
+                .setColor(0xe74c3c)
+                .setTitle('🔒 Ticket Cerrado')
+                .setDescription('Este canal será eliminado en **10 segundos**.')
+                .addFields(
+                    { name: '🔒 Cerrado por', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: '📋 Razón',       value: reason,                      inline: true }
+                )
+                .setTimestamp()
+            ]
+        });
+
+        await interaction.editReply({ content: '✅ Ticket cerrado. El canal se eliminará en 10 segundos.' });
+
+        setTimeout(async () => {
+            await interaction.channel.delete(`Ticket #${ticket.ticketId} cerrado`).catch(e => {
+                console.error(`❌ No se pudo eliminar canal del ticket #${ticket.ticketId}:`, e.message);
+            });
+        }, 10_000);
+    }
 }
 
 /* ═══════════════════════════════════════════════
