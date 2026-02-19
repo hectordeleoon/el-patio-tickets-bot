@@ -768,10 +768,32 @@ async function handleRateSubmit(interaction, client) {
 
     console.log(`⭐ Rating submit — customId: ${interaction.customId} → ticketId: ${ticketId}, stars: ${stars}`);
 
-    const ticket = await Ticket.findOne({ ticketId });
+    // Buscar por ticketId directo primero, si no por userId + cerrado recientemente
+    let ticket = await Ticket.findOne({ ticketId });
+
     if (!ticket) {
-        console.error(`❌ Ticket no encontrado para rating — ticketId buscado: "${ticketId}"`);
-        return interaction.editReply({ content: '❌ Ticket no encontrado.' });
+        // Fallback: buscar el ticket cerrado más reciente de este usuario con ese ID
+        // (puede pasar si el ticketId tiene padding diferente)
+        const ticketIdInt = parseInt(ticketId, 10);
+        if (!isNaN(ticketIdInt)) {
+            ticket = await Ticket.findOne({
+                userId: interaction.user.id,
+                status: 'closed',
+                $or: [
+                    { ticketId: ticketId },
+                    { ticketId: ticketIdInt.toString() },
+                    { ticketId: ticketIdInt.toString().padStart(4, '0') }
+                ]
+            }).sort({ closedAt: -1 });
+        }
+    }
+
+    if (!ticket) {
+        console.error(`❌ Ticket no encontrado para rating — ticketId buscado: "${ticketId}", userId: ${interaction.user.id}`);
+        // Listar tickets cerrados del usuario para debug
+        const userTickets = await Ticket.find({ userId: interaction.user.id, status: 'closed' }, { ticketId: 1 }).lean();
+        console.error(`   Tickets cerrados del usuario: ${userTickets.map(t => t.ticketId).join(', ') || 'ninguno'}`);
+        return interaction.editReply({ content: '❌ No se pudo encontrar tu ticket. Es posible que ya haya sido eliminado de la base de datos.' });
     }
     if (ticket.rating?.stars) return interaction.editReply({ content: '❌ Ya calificaste este ticket.' });
     if (ticket.userId !== interaction.user.id) return interaction.editReply({ content: '❌ Solo el creador puede calificar.' });
