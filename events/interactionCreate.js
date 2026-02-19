@@ -800,19 +800,22 @@ async function handleRateSubmit(interaction, client) {
 
     await ticket.setRating(stars, comment, interaction.user.id);
 
-    if (config.channels.logs) {
-        const logChannel = await client.channels.fetch(config.channels.logs).catch(() => null);
-        if (logChannel) {
-            await logChannel.send({
+    // Publicar en canal de reseñas (o logs como fallback)
+    const reviewChannelId = config.channels.reviews || config.channels.logs;
+    if (reviewChannelId) {
+        const reviewChannel = await client.channels.fetch(reviewChannelId).catch(() => null);
+        if (reviewChannel) {
+            await reviewChannel.send({
                 embeds: [new EmbedBuilder()
                     .setColor(stars >= 4 ? 0x27ae60 : stars === 3 ? 0xf39c12 : 0xe74c3c)
                     .setTitle(`⭐ Nueva Valoración — Ticket #${ticketId}`)
                     .addFields(
                         { name: '⭐ Estrellas',  value: `${'⭐'.repeat(stars)} (${stars}/5)`, inline: true },
-                        { name: '👤 Usuario',    value: interaction.user.tag,                  inline: true },
-                        { name: '👨‍💼 Staff',     value: ticket.claimedBy?.username || 'N/A',   inline: true },
+                        { name: '👤 Usuario',    value: `<@${interaction.user.id}>`,           inline: true },
+                        { name: '👨‍💼 Staff',     value: ticket.claimedBy ? `<@${ticket.claimedBy.userId}>` : 'N/A', inline: true },
                         { name: '💬 Comentario', value: comment || '*(sin comentario)*',       inline: false }
                     )
+                    .setFooter({ text: `Ticket #${ticketId}` })
                     .setTimestamp()
                 ]
             }).catch(() => {});
