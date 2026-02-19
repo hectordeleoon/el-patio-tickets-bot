@@ -6,7 +6,8 @@ const { EmbedBuilder, ChannelType } = require('discord.js');
 
 /**
  * Se ejecuta cada 10 minutos desde index.js
- * Gestiona: advertencias de inactividad, cierre automático, alertas 48h
+ * Gestiona: advertencias de inactividad, cierre automático, alertas 48h,
+ *           y limpieza de canales cerrados acumulados
  */
 module.exports = async function checkTickets(client) {
     const warningHours = config.system.inactivityWarning || 42;
@@ -48,19 +49,16 @@ module.exports = async function checkTickets(client) {
     const ticketsToClose = await Ticket.getInactiveTickets(closeHours);
 
     for (const ticket of ticketsToClose) {
-        if (!ticket.inactivityWarned) continue; // Solo cerrar si ya se advirtió
+        if (!ticket.inactivityWarned) continue;
 
         const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
 
         try {
-            // Generar transcript
             let transcriptPaths = null;
             try { transcriptPaths = await transcriptGenerator.generate(ticket); } catch (_) {}
 
-            // Cerrar en BD
             await ticket.close('Sistema', 'Bot', `Inactividad (${closeHours}h sin actividad)`);
 
-            // Enviar transcript a logs
             if (transcriptPaths && config.channels.logs) {
                 const logChannel = await client.channels.fetch(config.channels.logs).catch(() => null);
                 if (logChannel) {
@@ -81,7 +79,6 @@ module.exports = async function checkTickets(client) {
                 }
             }
 
-            // Mensaje en el canal antes de eliminar
             if (channel) {
                 await channel.send({
                     embeds: [new EmbedBuilder()
@@ -92,7 +89,6 @@ module.exports = async function checkTickets(client) {
                     ]
                 }).catch(() => {});
 
-                // Notificar al usuario
                 try {
                     const user = await client.users.fetch(ticket.userId);
                     await user.send({
@@ -105,16 +101,13 @@ module.exports = async function checkTickets(client) {
                     });
                 } catch (_) {}
 
-                // Eliminar canal a los 30 segundos
                 setTimeout(() => {
                     channel.delete(`Ticket #${ticket.ticketId} cerrado por inactividad`).catch(() => {});
                 }, 30_000);
             } else {
-                // Si el canal ya no existe, solo loguear
                 console.log(`⚠️ Canal del ticket #${ticket.ticketId} ya no existe, solo se cerró en BD`);
             }
 
-            // Stats
             try {
                 const stats = await Stats.getTodayStats();
                 if (stats?.incrementClosed) await stats.incrementClosed();
@@ -160,6 +153,46 @@ module.exports = async function checkTickets(client) {
         } catch (e) {
             console.error(`Error enviando alerta 48h #${ticket.ticketId}:`, e.message);
         }
+    }
+
+    // ── 4. LIMPIEZA DE CANALES CERRADOS ACUMULADOS ───────────────────
+    // Borra canales de tickets cerrados que llevan más de 1 hora cerrados
+    // Esto limpia los canales que checkTickets48h.js mueve a la categoría
+    // "cerrados" sin borrarlos, y cualquier otro que se haya acumulado.
+    try {
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+        const closedTickets = await Ticket.find({
+            status: 'closed',
+            closedAt: { $lt: oneHourAgo },
+            channelId: { $exists: true, $ne: null }
+        }).lean();
+
+        let cleaned = 0;
+
+        for (const ticket of closedTickets) {
+            const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
+
+            // Si el canal todavía existe en Discord, borrarlo
+            if (channel) {
+                await channel.delete(`Limpieza automática — Ticket #${ticket.ticketId} cerrado hace más de 1h`)
+                    .catch(e => console.error(`❌ No se pudo borrar canal ticket #${ticket.ticketId}:`, e.message));
+                cleaned++;
+            }
+
+            // Limpiar el channelId en BD para no volver a procesarlo
+            await Ticket.updateOne(
+                { _id: ticket._id },
+                { $unset: { channelId: '' } }
+            ).catch(() => {});
+        }
+
+        if (cleaned > 0) {
+            console.log(`🧹 Limpieza: ${cleaned} canal(es) de tickets cerrados eliminados`);
+        }
+
+    } catch (e) {
+        console.error('Error en limpieza de canales cerrados:', e.message);
     }
 
     console.log(`✅ checkTickets completado: ${ticketsToWarn.length} advertencias, ${ticketsToClose.length} cierres, ${ticketsNeedingAlert.length} alertas 48h`);
