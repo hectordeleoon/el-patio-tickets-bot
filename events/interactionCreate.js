@@ -733,9 +733,12 @@ async function handleAddStaffConfirm(interaction, client) {
 ═══════════════════════════════════════════════ */
 
 async function handleRateModal(interaction, param) {
-    const parts    = param.split('_');
-    const stars    = parseInt(parts[parts.length - 1]);
-    const ticketId = parts.slice(0, -1).join('_');
+    // param viene de: parts.slice(1).join('_') donde customId = "rate_modal_XXXX_N"
+    // param = "modal_XXXX_N", necesitamos extraer XXXX y N
+    const withoutModal = param.startsWith('modal_') ? param.replace('modal_', '') : param;
+    const lastUnderscore = withoutModal.lastIndexOf('_');
+    const ticketId = withoutModal.substring(0, lastUnderscore);
+    const stars    = parseInt(withoutModal.substring(lastUnderscore + 1));
 
     const modal = new ModalBuilder()
         .setCustomId(`rate_modal_${ticketId}_${stars}`)
@@ -756,13 +759,20 @@ async function handleRateModal(interaction, param) {
 async function handleRateSubmit(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
 
-    const parts    = interaction.customId.replace('rate_modal_', '').split('_');
-    const stars    = parseInt(parts[parts.length - 1]);
-    const ticketId = parts.slice(0, -1).join('_');
+    // customId formato: "rate_modal_XXXX_N" donde XXXX = ticketId y N = estrellas
+    const withoutPrefix = interaction.customId.replace('rate_modal_', '');
+    const lastUnderscore = withoutPrefix.lastIndexOf('_');
+    const ticketId = withoutPrefix.substring(0, lastUnderscore);
+    const stars    = parseInt(withoutPrefix.substring(lastUnderscore + 1));
     const comment  = interaction.fields.getTextInputValue('rate_comment') || '';
 
+    console.log(`⭐ Rating submit — customId: ${interaction.customId} → ticketId: ${ticketId}, stars: ${stars}`);
+
     const ticket = await Ticket.findOne({ ticketId });
-    if (!ticket) return interaction.editReply({ content: '❌ Ticket no encontrado.' });
+    if (!ticket) {
+        console.error(`❌ Ticket no encontrado para rating — ticketId buscado: "${ticketId}"`);
+        return interaction.editReply({ content: '❌ Ticket no encontrado.' });
+    }
     if (ticket.rating?.stars) return interaction.editReply({ content: '❌ Ya calificaste este ticket.' });
     if (ticket.userId !== interaction.user.id) return interaction.editReply({ content: '❌ Solo el creador puede calificar.' });
 
