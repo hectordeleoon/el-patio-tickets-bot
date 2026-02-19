@@ -38,16 +38,26 @@ module.exports = {
        ROLES
     ======================= */
     roles: {
-        support: process.env.SUPPORT_ROLE_ID,
-        finance: process.env.FINANCE_ROLE_ID,
-        moderator: process.env.MODERATOR_ROLE_ID,
-        admin: process.env.ADMIN_ROLE_ID,
-        seniorAdmin: process.env.SENIOR_ADMIN_ROLE_ID,
-        staff: process.env.STAFF_ROLE_ID || null,
-        staffGeneral: process.env.STAFF_GENERAL_ROLE_ID || null,
-        preStaff: process.env.PRE_STAFF_ROLE_ID || null,
+        support:         process.env.SUPPORT_ROLE_ID        || null,
+        finance:         process.env.FINANCE_ROLE_ID        || null,
+        moderator:       process.env.MODERATOR_ROLE_ID      || null,
+        admin:           process.env.ADMIN_ROLE_ID          || null,
+        seniorAdmin:     process.env.SENIOR_ADMIN_ROLE_ID   || null,
+        staff:           process.env.STAFF_ROLE_ID          || null,
+        staffGeneral:    process.env.STAFF_GENERAL_ROLE_ID  || null,
+        preStaff:        process.env.PRE_STAFF_ROLE_ID      || null,
         staffCallcenter: process.env.STAFF_CALLCENTER_ROLE_ID || null,
-        supportStaff: process.env.SUPPORT_STAFF_ROLE_ID || null
+        supportStaff:    process.env.SUPPORT_STAFF_ROLE_ID  || null
+    },
+
+    /* =======================
+       SANCIONES STAFF
+    ======================= */
+    staffSanctionsEnv: {
+        warnAfter:      parseInt(process.env.STAFF_WARN_AFTER)        || 1,
+        timeoutAfter:   parseInt(process.env.STAFF_TIMEOUT_AFTER)     || 2,
+        removeRoleAfter: parseInt(process.env.STAFF_REMOVE_ROLE_AFTER) || 3,
+        timeoutDuration: parseInt(process.env.STAFF_TIMEOUT_DURATION) || 60
     },
 
     /* =======================
@@ -113,7 +123,7 @@ module.exports = {
             label: 'Soporte General',
             description: 'Ayuda general con el servidor',
             color: '#27ae60',
-            roles: ['support', 'supportStaff', 'staffGeneral', 'staffCallcenter', 'preStaff', 'staff', 'moderator', 'admin', 'seniorAdmin'],
+            roles: ['support', 'supportStaff', 'staffGeneral', 'staffCallcenter', 'preStaff', 'staff', 'moderator', 'finance', 'admin', 'seniorAdmin'],
             requiresProof: false
         },
         'donaciones': {
@@ -121,7 +131,7 @@ module.exports = {
             label: 'Donaciones',
             description: 'Consultas sobre donaciones y VIP',
             color: '#3498db',
-            roles: ['finance', 'staffGeneral', 'staff', 'admin', 'seniorAdmin'],
+            roles: ['support', 'supportStaff', 'staffGeneral', 'staffCallcenter', 'preStaff', 'staff', 'moderator', 'finance', 'admin', 'seniorAdmin'],
             requiresProof: false
         },
         'apelaciones': {
@@ -129,7 +139,7 @@ module.exports = {
             label: 'Apelaciones',
             description: 'Apelar sanciones o baneos',
             color: '#95a5a6',
-            roles: ['moderator', 'staffGeneral', 'staff', 'admin', 'seniorAdmin'],
+            roles: ['support', 'supportStaff', 'staffGeneral', 'staffCallcenter', 'preStaff', 'staff', 'moderator', 'finance', 'admin', 'seniorAdmin'],
             requiresProof: false
         },
         'reportar-staff': {
@@ -137,7 +147,7 @@ module.exports = {
             label: 'Reportar Staff',
             description: '⚠️ Reportar conducta de staff (requiere pruebas)',
             color: '#e74c3c',
-            roles: ['seniorAdmin', 'admin'],
+            roles: ['support', 'supportStaff', 'staffGeneral', 'staffCallcenter', 'preStaff', 'staff', 'moderator', 'finance', 'admin', 'seniorAdmin'],
             requiresProof: true
         },
         'otros': {
@@ -145,7 +155,7 @@ module.exports = {
             label: 'Otros',
             description: 'Otras consultas o solicitudes',
             color: '#f39c12',
-            roles: ['support', 'supportStaff', 'staffGeneral', 'staffCallcenter', 'preStaff', 'staff', 'moderator', 'admin', 'seniorAdmin'],
+            roles: ['support', 'supportStaff', 'staffGeneral', 'staffCallcenter', 'preStaff', 'staff', 'moderator', 'finance', 'admin', 'seniorAdmin'],
             requiresProof: false
         }
     },
