@@ -155,44 +155,48 @@ module.exports = async function checkTickets(client) {
         }
     }
 
-    // ── 4. LIMPIEZA DE CANALES CERRADOS ACUMULADOS ───────────────────
-    // Borra canales de tickets cerrados que llevan más de 1 hora cerrados
-    // Esto limpia los canales que checkTickets48h.js mueve a la categoría
-    // "cerrados" sin borrarlos, y cualquier otro que se haya acumulado.
+    // ── 4. LIMPIEZA DE CANALES CERRADOS (72 HORAS) ──────────────────
+    // Borra los canales que fueron movidos a la categoría "cerrados"
+    // y ya llevan 72 horas ahí, o que tengan scheduledDeleteAt vencido.
     try {
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        const now = new Date();
 
-        const closedTickets = await Ticket.find({
+        // Buscar tickets cerrados cuyo scheduledDeleteAt ya venció
+        const ticketsToDelete = await Ticket.find({
             status: 'closed',
-            closedAt: { $lt: oneHourAgo },
-            channelId: { $exists: true, $ne: null }
+            channelId: { $exists: true, $ne: null },
+            $or: [
+                // Tiene fecha programada y ya venció
+                { scheduledDeleteAt: { $lt: now } },
+                // No tiene fecha programada pero lleva más de 72h cerrado (tickets viejos o de checkTickets48h)
+                { scheduledDeleteAt: { $exists: false }, closedAt: { $lt: new Date(Date.now() - 72 * 60 * 60 * 1000) } }
+            ]
         }).lean();
 
         let cleaned = 0;
 
-        for (const ticket of closedTickets) {
+        for (const ticket of ticketsToDelete) {
             const channel = await client.channels.fetch(ticket.channelId).catch(() => null);
 
-            // Si el canal todavía existe en Discord, borrarlo
             if (channel) {
-                await channel.delete(`Limpieza automática — Ticket #${ticket.ticketId} cerrado hace más de 1h`)
+                await channel.delete(`Auto-limpieza 72h — Ticket #${ticket.ticketId}`)
                     .catch(e => console.error(`❌ No se pudo borrar canal ticket #${ticket.ticketId}:`, e.message));
                 cleaned++;
             }
 
-            // Limpiar el channelId en BD para no volver a procesarlo
+            // Limpiar channelId y scheduledDeleteAt en BD para no reprocesar
             await Ticket.updateOne(
                 { _id: ticket._id },
-                { $unset: { channelId: '' } }
+                { $unset: { channelId: '', scheduledDeleteAt: '' } }
             ).catch(() => {});
         }
 
         if (cleaned > 0) {
-            console.log(`🧹 Limpieza: ${cleaned} canal(es) de tickets cerrados eliminados`);
+            console.log(`🧹 Limpieza 72h: ${cleaned} canal(es) de tickets cerrados eliminados`);
         }
 
     } catch (e) {
-        console.error('Error en limpieza de canales cerrados:', e.message);
+        console.error('Error en limpieza de canales cerrados 72h:', e.message);
     }
 
     console.log(`✅ checkTickets completado: ${ticketsToWarn.length} advertencias, ${ticketsToClose.length} cierres, ${ticketsNeedingAlert.length} alertas 48h`);
