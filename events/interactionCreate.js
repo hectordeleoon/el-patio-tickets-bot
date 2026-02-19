@@ -32,7 +32,6 @@ module.exports = {
 
         // ── BUTTONS ───────────────────────────────────────────────────
         if (interaction.isButton()) {
-            // Separar con '_' y tomar las primeras 2 partes
             const parts  = interaction.customId.split('_');
             const action = parts[0];
             const param  = parts.slice(1).join('_');
@@ -148,11 +147,18 @@ async function handleTicketCreate(interaction, client) {
         });
     }
 
-    // ── 4. CREAR CANAL ───────────────────────────────────────────────
-    let ticketId, ticketChannel;
+    // ── 4. GENERAR ID ANTES DE CREAR EL CANAL ───────────────────────
+    let ticketId;
     try {
         ticketId = await Ticket.generateNextId();
+    } catch (err) {
+        console.error('❌ Error generando ticketId:', err);
+        return interaction.editReply({ content: '❌ No se pudo generar un ID para el ticket. Intenta de nuevo.' });
+    }
 
+    // ── 5. CREAR CANAL ───────────────────────────────────────────────
+    let ticketChannel;
+    try {
         ticketChannel = await interaction.guild.channels.create({
             name: `ticket-${ticketId}`,
             type: ChannelType.GuildText,
@@ -161,10 +167,13 @@ async function handleTicketCreate(interaction, client) {
             reason: `Ticket #${ticketId} creado por ${username}`
         });
 
-        // Permisos: solo el usuario creador
+        // ✅ FIX: El usuario puede VER el canal pero NO puede escribir hasta que el staff lo reclame
         await ticketChannel.permissionOverwrites.create(userId, {
-            ViewChannel: true, SendMessages: true,
-            AttachFiles: true, ReadMessageHistory: true, EmbedLinks: true
+            ViewChannel:        true,
+            SendMessages:       false,   // ← bloqueado hasta que el staff reclame
+            AttachFiles:        false,
+            ReadMessageHistory: true,
+            EmbedLinks:         false
         });
 
     } catch (err) {
@@ -174,21 +183,38 @@ async function handleTicketCreate(interaction, client) {
         });
     }
 
-    // ── 5. GUARDAR EN BD ─────────────────────────────────────────────
-    await Ticket.create({
-        ticketId, channelId: ticketChannel.id,
-        userId, username, type: ticketType, detail,
-        status: 'open', lastActivity: new Date(),
-        priority: ticketType === 'reportar-staff' ? 'urgente' : 'normal'
-    });
+    // ── 6. GUARDAR EN BD ─────────────────────────────────────────────
+    // ✅ FIX: Manejo de error E11000 (duplicate key) — no crashea el bot
+    try {
+        await Ticket.create({
+            ticketId, channelId: ticketChannel.id,
+            userId, username, type: ticketType, detail,
+            status: 'open', lastActivity: new Date(),
+            priority: ticketType === 'reportar-staff' ? 'urgente' : 'normal'
+        });
+    } catch (err) {
+        if (err.code === 11000) {
+            // El ticket ya existía en BD (bot reiniciado). Eliminar el canal recién creado y avisar.
+            await ticketChannel.delete('Duplicate ticketId, abortando creación').catch(() => {});
+            return interaction.editReply({
+                content: `❌ Ocurrió un conflicto con el ID del ticket. Por favor intenta de nuevo.`
+            });
+        }
+        console.error('❌ Error guardando ticket en BD:', err);
+        await ticketChannel.delete('Error en BD, abortando creación').catch(() => {});
+        return interaction.editReply({ content: `❌ Error guardando el ticket: \`${err.message}\`` });
+    }
 
-    // ── 6. MENSAJE EN EL CANAL ───────────────────────────────────────
+    // ── 7. MENSAJE EN EL CANAL ───────────────────────────────────────
     const color = parseInt(typeInfo.color.replace('#', ''), 16);
 
     const embed = new EmbedBuilder()
         .setColor(color)
         .setTitle(`${typeInfo.emoji} ${typeInfo.label}`)
-        .setDescription(typeInfo.requiresProof ? config.messages.ticketCreatedProof : config.messages.ticketCreated)
+        .setDescription(
+            (typeInfo.requiresProof ? config.messages.ticketCreatedProof : config.messages.ticketCreated) +
+            '\n\n⏳ **Esperando que un miembro del staff atienda este ticket...**'
+        )
         .addFields(
             { name: '📋 ID',          value: `#${ticketId}`,          inline: true },
             { name: '👤 Usuario',     value: `<@${userId}>`,           inline: true },
@@ -198,15 +224,19 @@ async function handleTicketCreate(interaction, client) {
         .setFooter({ text: config.branding.serverName })
         .setTimestamp();
 
+    // ✅ Botón de reclamar ticket (igual que antes)
     const claimRow = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('claim_ticket').setLabel('🛎️ Atender Ticket').setStyle(ButtonStyle.Success)
+        new ButtonBuilder()
+            .setCustomId('claim_ticket')
+            .setLabel('🛎️ Atender Ticket')
+            .setStyle(ButtonStyle.Success)
     );
 
     await ticketChannel.send({ content: `<@${userId}>`, embeds: [embed], components: [claimRow] });
 
-    // ── 7. RESPUESTA AL USUARIO ──────────────────────────────────────
+    // ── 8. RESPUESTA AL USUARIO ──────────────────────────────────────
     await interaction.editReply({
-        content: `✅ **Ticket #${ticketId} creado correctamente.**\n📂 <#${ticketChannel.id}>`,
+        content: `✅ **Ticket #${ticketId} creado correctamente.**\n📂 <#${ticketChannel.id}>\n\n⏳ Un miembro del staff te atenderá pronto. Podrás escribir cuando sea reclamado.`,
         components: [new ActionRowBuilder().addComponents(
             new ButtonBuilder()
                 .setLabel('📂 Ir al Ticket')
@@ -215,7 +245,7 @@ async function handleTicketCreate(interaction, client) {
         )]
     });
 
-    // ── 8. NOTIFICACIÓN DM ───────────────────────────────────────────
+    // ── 9. NOTIFICACIÓN DM ───────────────────────────────────────────
     if (config.system.dmNotifications) {
         await interaction.user.send({
             embeds: [new EmbedBuilder()
@@ -225,10 +255,10 @@ async function handleTicketCreate(interaction, client) {
                 .addFields({ name: '📂 Canal', value: `<#${ticketChannel.id}>`, inline: true })
                 .setTimestamp()
             ]
-        }).catch(() => {}); // Ignorar si DMs bloqueados
+        }).catch(() => {});
     }
 
-    // ── 9. LOGS + STATS ──────────────────────────────────────────────
+    // ── 10. LOGS + STATS ─────────────────────────────────────────────
     await logger.sendTicketLog(client, {
         action: 'created', ticketId, userId,
         type: ticketType, detail, channelId: ticketChannel.id
@@ -248,7 +278,7 @@ async function handleTicketClaim(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
 
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
-    if (!ticket) return interaction.editReply({ content: '❌ Ticket no encontrado.' });
+    if (!ticket) return interaction.editReply({ content: '❌ Ticket no encontrado en la base de datos.' });
     if (ticket.status !== 'open') return interaction.editReply({ content: '❌ Este ticket ya está siendo atendido.' });
 
     // ── VALIDAR ROL DE STAFF ─────────────────────────────────────────
@@ -268,7 +298,16 @@ async function handleTicketClaim(interaction, client) {
 
     await ticket.claim(interaction.user.id, interaction.user.tag);
 
-    // Actualizar mensaje original
+    // ✅ FIX: Ahora que el staff reclamó, dar permisos de escritura al usuario
+    await interaction.channel.permissionOverwrites.edit(ticket.userId, {
+        ViewChannel:        true,
+        SendMessages:       true,
+        AttachFiles:        true,
+        ReadMessageHistory: true,
+        EmbedLinks:         true
+    }).catch(err => console.error('Error dando permisos al usuario:', err));
+
+    // Actualizar mensaje original con nuevo embed y botones
     const messages = await interaction.channel.messages.fetch({ limit: 20 });
     const original  = messages.find(m =>
         m.author.id === client.user.id &&
@@ -284,17 +323,24 @@ async function handleTicketClaim(interaction, client) {
             .setTitle(`${typeInfo?.emoji || '🎫'} ${typeInfo?.label || ticket.type}`)
             .setDescription(typeInfo?.requiresProof ? config.messages.ticketCreatedProof : config.messages.ticketCreated)
             .addFields(
-                { name: '📋 ID',      value: `#${ticket.ticketId}`,                          inline: true },
-                { name: '👤 Usuario', value: `<@${ticket.userId}>`,                           inline: true },
-                { name: '🟢 Estado',  value: `Atendido por <@${interaction.user.id}>`,        inline: true },
-                { name: '📝 Descripción', value: ticket.detail,                               inline: false }
+                { name: '📋 ID',          value: `#${ticket.ticketId}`,                   inline: true },
+                { name: '👤 Usuario',     value: `<@${ticket.userId}>`,                    inline: true },
+                { name: '🟢 Estado',      value: `Atendido por <@${interaction.user.id}>`, inline: true },
+                { name: '📝 Descripción', value: ticket.detail,                            inline: false }
             )
             .setFooter({ text: config.branding.serverName })
             .setTimestamp();
 
+        // ✅ FIX RESTAURADO: botón "Solicitar Ayuda" (addstaff) + "Cerrar Ticket"
         const actionRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('addstaff_ticket').setLabel('👥 Añadir Staff').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('close_ticket').setLabel('🔒 Cerrar Ticket').setStyle(ButtonStyle.Danger)
+            new ButtonBuilder()
+                .setCustomId('addstaff_ticket')
+                .setLabel('👥 Solicitar Ayuda')
+                .setStyle(ButtonStyle.Primary),
+            new ButtonBuilder()
+                .setCustomId('close_ticket')
+                .setLabel('🔒 Cerrar Ticket')
+                .setStyle(ButtonStyle.Danger)
         );
 
         await original.edit({ embeds: [updatedEmbed], components: [actionRow] });
@@ -303,7 +349,7 @@ async function handleTicketClaim(interaction, client) {
     await interaction.channel.send({
         embeds: [new EmbedBuilder()
             .setColor(0x27ae60)
-            .setDescription(`🛎️ <@${interaction.user.id}> está atendiendo este ticket.`)
+            .setDescription(`🛎️ <@${interaction.user.id}> está atendiendo este ticket.\n<@${ticket.userId}> ahora puedes escribir aquí.`)
             .setTimestamp()
         ]
     });
@@ -387,12 +433,12 @@ async function handleCloseWithReason(interaction, client) {
                     .setColor(0xe74c3c)
                     .setTitle(`📄 Transcript — Ticket #${ticket.ticketId}`)
                     .addFields(
-                        { name: '👤 Usuario',    value: `<@${ticket.userId}>`,        inline: true },
-                        { name: '👨‍💼 Staff',     value: ticket.claimedBy?.username || 'Sin reclamar', inline: true },
-                        { name: '📋 Tipo',       value: ticket.type,                  inline: true },
-                        { name: '🔒 Razón',      value: reason,                       inline: false },
-                        { name: '⏱️ Duración',  value: calcDuration(ticket.createdAt, ticket.closedAt), inline: true },
-                        { name: '💬 Mensajes',   value: `${ticket.messages?.length || 0}`, inline: true }
+                        { name: '👤 Usuario',   value: `<@${ticket.userId}>`,        inline: true },
+                        { name: '👨‍💼 Staff',    value: ticket.claimedBy?.username || 'Sin reclamar', inline: true },
+                        { name: '📋 Tipo',      value: ticket.type,                  inline: true },
+                        { name: '🔒 Razón',     value: reason,                       inline: false },
+                        { name: '⏱️ Duración', value: calcDuration(ticket.createdAt, ticket.closedAt), inline: true },
+                        { name: '💬 Mensajes',  value: `${ticket.messages?.length || 0}`, inline: true }
                     )
                     .setTimestamp()
                 ],
@@ -401,7 +447,7 @@ async function handleCloseWithReason(interaction, client) {
         }
     }
 
-    // ── DM AL USUARIO con transcript + solicitud de rating ───────────
+    // ── DM AL USUARIO con solicitud de rating ─────────────────────────
     const user = await client.users.fetch(ticket.userId).catch(() => null);
     if (user) {
         const ratingRow = new ActionRowBuilder().addComponents(
@@ -428,8 +474,6 @@ async function handleCloseWithReason(interaction, client) {
         }).catch(() => {});
     }
 
-    // ── MENSAJE EN EL CANAL + AUTO-ELIMINAR ──────────────────────────
-    // Eliminamos el canal en 10 segundos en vez de acumular canales cerrados
     await interaction.channel.send({
         embeds: [new EmbedBuilder()
             .setColor(0xe74c3c)
@@ -458,7 +502,6 @@ async function handleCloseWithReason(interaction, client) {
 
     await interaction.editReply({ content: '✅ Ticket cerrado. El canal se eliminará en 10 segundos.' });
 
-    // ── AUTO-ELIMINAR CANAL ──────────────────────────────────────────
     setTimeout(async () => {
         await interaction.channel.delete(`Ticket #${ticket.ticketId} cerrado`).catch(e => {
             console.error(`❌ No se pudo eliminar canal del ticket #${ticket.ticketId}:`, e.message);
@@ -481,7 +524,6 @@ async function handleTicketReopen(interaction, client) {
     ticket.inactivityWarned = false;
     await ticket.save();
 
-    // Mover a categoría abiertos si existe
     const openCategory = config.channels.ticketsOpen
         ? await interaction.guild.channels.fetch(config.channels.ticketsOpen).catch(() => null)
         : null;
@@ -491,7 +533,15 @@ async function handleTicketReopen(interaction, client) {
     }
 
     await interaction.channel.setName(`ticket-${ticket.ticketId}`).catch(() => {});
-    await interaction.channel.permissionOverwrites.edit(ticket.userId, { SendMessages: true }).catch(() => {});
+
+    // Al reabrir, quitar permisos de escritura al usuario nuevamente hasta que el staff lo vuelva a reclamar
+    await interaction.channel.permissionOverwrites.edit(ticket.userId, {
+        ViewChannel:        true,
+        SendMessages:       false,
+        AttachFiles:        false,
+        ReadMessageHistory: true,
+        EmbedLinks:         false
+    }).catch(() => {});
 
     const claimRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('claim_ticket').setLabel('🛎️ Atender').setStyle(ButtonStyle.Success),
@@ -522,7 +572,6 @@ async function handleTicketReopen(interaction, client) {
 ═══════════════════════════════════════════════ */
 
 async function handleTicketDelete(interaction, client) {
-    // Solo admins o staff pueden eliminar manualmente
     const isAdmin = interaction.member.permissions.has(PermissionFlagsBits.Administrator);
     const isStaff = interaction.member.roles.cache.some(r =>
         Object.values(config.roles).includes(r.id)
@@ -548,17 +597,17 @@ async function handleTicketDelete(interaction, client) {
 }
 
 /* ═══════════════════════════════════════════════
-   AÑADIR STAFF
+   AÑADIR STAFF / SOLICITAR AYUDA
 ═══════════════════════════════════════════════ */
 
 async function handleAddStaffModal(interaction) {
     const modal = new ModalBuilder()
         .setCustomId('add_staff_modal')
-        .setTitle('Añadir Staff al Ticket');
+        .setTitle('👥 Solicitar Ayuda de Staff');
 
     const input = new TextInputBuilder()
         .setCustomId('staff_id')
-        .setLabel('ID o @mención del staff')
+        .setLabel('ID o @mención del staff a llamar')
         .setStyle(TextInputStyle.Short)
         .setPlaceholder('123456789012345678')
         .setRequired(true);
@@ -571,16 +620,14 @@ async function handleAddStaffConfirm(interaction, client) {
     await interaction.deferReply({ ephemeral: true });
 
     const rawInput = interaction.fields.getTextInputValue('staff_id').trim();
-    const staffId  = rawInput.replace(/[<@!>]/g, ''); // limpiar mención
+    const staffId  = rawInput.replace(/[<@!>]/g, '');
     const ticket   = await Ticket.findOne({ channelId: interaction.channel.id });
 
-    // Verificar que el miembro existe en el servidor
     const staffMember = await interaction.guild.members.fetch(staffId).catch(() => null);
     if (!staffMember) {
         return interaction.editReply({ content: '❌ No se encontró ese miembro en el servidor. Verifica el ID.' });
     }
 
-    // Verificar que es staff
     const isStaff = Object.values(config.roles).some(roleId =>
         staffMember.roles.cache.has(roleId)
     );
@@ -603,10 +650,12 @@ async function handleAddStaffConfirm(interaction, client) {
             await ticket.save();
         }
 
+        // ✅ Mencionar al staff en el canal del ticket
         await interaction.channel.send({
+            content: `<@${staffId}>`,
             embeds: [new EmbedBuilder()
                 .setColor(0x3498db)
-                .setDescription(`✅ <@${staffId}> añadido al ticket por <@${interaction.user.id}>.`)
+                .setDescription(`👥 <@${interaction.user.id}> solicita la ayuda de <@${staffId}> en este ticket.`)
                 .setTimestamp()
             ]
         });
@@ -618,7 +667,7 @@ async function handleAddStaffConfirm(interaction, client) {
             });
         }
 
-        await interaction.editReply({ content: `✅ **${staffMember.user.tag}** añadido correctamente.` });
+        await interaction.editReply({ content: `✅ **${staffMember.user.tag}** ha sido mencionado y añadido al ticket.` });
     } catch (err) {
         console.error('Error añadiendo staff:', err);
         await interaction.editReply({ content: `❌ Error al añadir staff: \`${err.message}\`` });
@@ -630,7 +679,6 @@ async function handleAddStaffConfirm(interaction, client) {
 ═══════════════════════════════════════════════ */
 
 async function handleRateModal(interaction, param) {
-    // param = "ticketId_stars"
     const parts    = param.split('_');
     const stars    = parseInt(parts[parts.length - 1]);
     const ticketId = parts.slice(0, -1).join('_');
@@ -666,7 +714,6 @@ async function handleRateSubmit(interaction, client) {
 
     await ticket.setRating(stars, comment, interaction.user.id);
 
-    // Publicar en canal de logs/reviews
     if (config.channels.logs) {
         const logChannel = await client.channels.fetch(config.channels.logs).catch(() => null);
         if (logChannel) {
@@ -675,10 +722,10 @@ async function handleRateSubmit(interaction, client) {
                     .setColor(stars >= 4 ? 0x27ae60 : stars === 3 ? 0xf39c12 : 0xe74c3c)
                     .setTitle(`⭐ Nueva Valoración — Ticket #${ticketId}`)
                     .addFields(
-                        { name: '⭐ Estrellas',    value: `${'⭐'.repeat(stars)} (${stars}/5)`,         inline: true },
-                        { name: '👤 Usuario',      value: interaction.user.tag,                          inline: true },
-                        { name: '👨‍💼 Staff',       value: ticket.claimedBy?.username || 'N/A',           inline: true },
-                        { name: '💬 Comentario',   value: comment || '*(sin comentario)*',               inline: false }
+                        { name: '⭐ Estrellas',  value: `${'⭐'.repeat(stars)} (${stars}/5)`, inline: true },
+                        { name: '👤 Usuario',    value: interaction.user.tag,                  inline: true },
+                        { name: '👨‍💼 Staff',     value: ticket.claimedBy?.username || 'N/A',   inline: true },
+                        { name: '💬 Comentario', value: comment || '*(sin comentario)*',       inline: false }
                     )
                     .setTimestamp()
                 ]
@@ -686,7 +733,6 @@ async function handleRateSubmit(interaction, client) {
         }
     }
 
-    // Deshabilitar los botones del DM
     try {
         await interaction.message.edit({ components: [] });
     } catch (_) {}
