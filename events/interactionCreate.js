@@ -68,12 +68,13 @@ module.exports = {
         // ── MODALS ────────────────────────────────────────────────────
         if (interaction.isModalSubmit()) {
             try {
-                if (interaction.customId.startsWith('ticket_create_modal_')) return handleTicketCreate(interaction, client);
-                if (interaction.customId === 'close_reason_modal')           return handleCloseWithReason(interaction, client);
-                if (interaction.customId === 'add_staff_modal')              return handleAddStaffConfirm(interaction, client);
-                if (interaction.customId.startsWith('rate_modal_'))          return handleRateSubmit(interaction, client);
+                if (interaction.customId.startsWith('ticket_create_modal_')) return await handleTicketCreate(interaction, client);
+                if (interaction.customId === 'close_reason_modal')           return await handleCloseWithReason(interaction, client);
+                if (interaction.customId === 'add_staff_modal')              return await handleAddStaffConfirm(interaction, client);
+                if (interaction.customId.startsWith('rate_modal_'))          return await handleRateSubmit(interaction, client);
             } catch (err) {
                 console.error('❌ Error en modal:', err);
+                if (err.code === 10062) return; // Interacción ya expirada, ignorar
                 await interaction.reply({ content: '❌ Error procesando formulario.', ephemeral: true }).catch(() => {});
             }
         }
@@ -405,7 +406,16 @@ async function handleCloseModal(interaction) {
 ═══════════════════════════════════════════════ */
 
 async function handleCloseWithReason(interaction, client) {
-    await interaction.deferReply({ ephemeral: true });
+    // Responder lo antes posible para no expirar los 3 segundos de Discord
+    try {
+        await interaction.deferReply({ ephemeral: true });
+    } catch (err) {
+        if (err.code === 10062) {
+            console.warn('⚠️ Interacción de cierre expirada antes de poder responder, abortando.');
+            return;
+        }
+        throw err;
+    }
 
     const reason = interaction.fields.getTextInputValue('close_reason');
     const ticket = await Ticket.findOne({ channelId: interaction.channel.id });
@@ -607,9 +617,11 @@ async function handleAddStaffModal(interaction) {
 
     const input = new TextInputBuilder()
         .setCustomId('staff_id')
-        .setLabel('ID o @mención del staff a llamar')
+        .setLabel('ID del staff (solo numeros, sin @)')
         .setStyle(TextInputStyle.Short)
-        .setPlaceholder('123456789012345678')
+        .setPlaceholder('Clic derecho al usuario > Copiar ID > pegar aqui')
+        .setMinLength(17)
+        .setMaxLength(20)
         .setRequired(true);
 
     modal.addComponents(new ActionRowBuilder().addComponents(input));
